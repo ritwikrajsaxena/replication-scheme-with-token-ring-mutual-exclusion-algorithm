@@ -226,147 +226,164 @@ class TokenManager:
 #                   COMPREHENSIVE ANIMATION SYSTEM
 # ═══════════════════════════════════════════════════════════════
 
-SPEED_MAP = {"🐢 Slow": 0.18, "🚶 Medium": 0.08, "🏃 Fast": 0.03, "⚡ Very Fast": 0.01}
+SPEED_MAP = {"🐢 Slow": 0.15, "🚶 Medium": 0.07, "🏃 Fast": 0.03, "⚡ Very Fast": 0.015}
 
 
-def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_A",
-                                    handoff_mh: str = "MH_3_B"):
+class AnimationBuilder:
     """
-    Create a comprehensive animation showing the full token ring lifecycle.
-    Returns a list of trace-lists (one per frame), a layout, phase markers, and log entries.
+    Builds smooth token ring animation with proper interpolation.
+    Tracks token position explicitly to avoid jumps.
     """
-
-    radius = 2.2
-    mh_radius = 0.55
-
-    angles = [2 * math.pi * i / num_mss - math.pi / 2 for i in range(num_mss)]
-    mss_x = [radius * math.cos(a) for a in angles]
-    mss_y = [radius * math.sin(a) for a in angles]
-
-    mh_positions = {}
-    mh_names = {}
-
-    for mss_id in range(num_mss):
-        mss_angle = angles[mss_id]
-        positions = []
-        names = []
-        for mh_idx in range(3):
-            mh_angle = mss_angle + math.pi + (mh_idx - 1) * 0.4
-            mx = mss_x[mss_id] + mh_radius * math.cos(mh_angle)
-            my = mss_y[mss_id] + mh_radius * math.sin(mh_angle)
-            positions.append((mx, my))
-            names.append(f"MH_{mss_id}_{chr(65 + mh_idx)}")
-        mh_positions[mss_id] = positions
-        mh_names[mss_id] = names
-
-    req_mss_id = int(requesting_mh.split('_')[1])
-    req_mh_idx = ord(requesting_mh.split('_')[2]) - 65
-
-    handoff_mss_id = int(handoff_mh.split('_')[1])
-    handoff_mh_idx = ord(handoff_mh.split('_')[2]) - 65
-    handoff_target_mss = (handoff_mss_id + 1) % num_mss
-
-    colors = {
-        'mss_normal': '#00D4FF',
-        'mss_pending': '#FFD700',
-        'mss_holding': '#00FF00',
-        'mss_granting': '#CC00FF',
-        'mss_checking': '#87CEEB',
-        'mh_normal': '#4CAF50',
-        'mh_requesting': '#FF5722',
-        'mh_in_cs': '#9C27B0',
-        'mh_handoff': '#FF9800',
-        'token_free': '#FFFFFF',
-        'token_held': '#00FF00',
-        'request_msg': '#FF5722',
-        'release_msg': '#2196F3',
-        'permission_msg': '#9C27B0',
-        'ring': '#444444',
-        'connection': '#666666',
-    }
-
-    frames_data = []
-    phase_markers = []
-    log_entries = []
-
-    steps_between_mss = 12
-    brief_stop = 8
-    long_hold = 25
-    message_steps = 8
-
-    def interpolate(start, end, t):
-        return start + (end - start) * min(1.0, max(0.0, t))
-
-    def build_traces(token_pos, token_color, mss_colors, mh_colors,
-                     request_msg=None, release_msg=None, permission_msg=None,
-                     handoff_line=None, log_text="", mh_override_pos=None):
-        """Return a list of go traces for one frame."""
-
+    
+    def __init__(self, num_mss: int, requesting_mh: str, handoff_mh: str):
+        self.num_mss = num_mss
+        self.requesting_mh = requesting_mh
+        self.handoff_mh = handoff_mh
+        
+        # Geometry
+        self.radius = 2.2
+        self.mh_radius = 0.55
+        
+        # Calculate positions
+        self.angles = [2 * math.pi * i / num_mss - math.pi / 2 for i in range(num_mss)]
+        self.mss_x = [self.radius * math.cos(a) for a in self.angles]
+        self.mss_y = [self.radius * math.sin(a) for a in self.angles]
+        
+        self.mh_positions = {}
+        self.mh_names = {}
+        for mss_id in range(num_mss):
+            mss_angle = self.angles[mss_id]
+            positions = []
+            names = []
+            for mh_idx in range(3):
+                mh_angle = mss_angle + math.pi + (mh_idx - 1) * 0.4
+                mx = self.mss_x[mss_id] + self.mh_radius * math.cos(mh_angle)
+                my = self.mss_y[mss_id] + self.mh_radius * math.sin(mh_angle)
+                positions.append((mx, my))
+                names.append(f"MH_{mss_id}_{chr(65 + mh_idx)}")
+            self.mh_positions[mss_id] = positions
+            self.mh_names[mss_id] = names
+        
+        # Parse MH info
+        self.req_mss_id = int(requesting_mh.split('_')[1])
+        self.req_mh_idx = ord(requesting_mh.split('_')[2]) - 65
+        self.handoff_mss_id = int(handoff_mh.split('_')[1])
+        self.handoff_mh_idx = ord(handoff_mh.split('_')[2]) - 65
+        self.handoff_target_mss = (self.handoff_mss_id + 1) % num_mss
+        
+        # Colors
+        self.colors = {
+            'mss_normal': '#00D4FF',
+            'mss_pending': '#FFD700',
+            'mss_holding': '#00FF00',
+            'mss_granting': '#CC00FF',
+            'mss_checking': '#87CEEB',
+            'mh_normal': '#4CAF50',
+            'mh_requesting': '#FF5722',
+            'mh_in_cs': '#9C27B0',
+            'mh_handoff': '#FF9800',
+            'token_free': '#FFFFFF',
+            'token_held': '#00FF00',
+            'request_msg': '#FF5722',
+            'release_msg': '#2196F3',
+            'permission_msg': '#9C27B0',
+            'ring': '#444444',
+            'connection': '#666666',
+        }
+        
+        # Animation storage
+        self.frames_data = []
+        self.phase_markers = []
+        self.log_entries = []
+        
+        # Current token position (tracked explicitly)
+        self.token_pos = 0.0
+        
+        # Timing
+        self.move_steps = 15
+        self.stop_frames = 10
+        self.hold_frames = 20
+        self.msg_steps = 10
+    
+    def lerp(self, a, b, t):
+        """Linear interpolation"""
+        return a + (b - a) * max(0.0, min(1.0, t))
+    
+    def add_phase(self, text):
+        """Mark a new phase"""
+        self.phase_markers.append((len(self.frames_data), text))
+        self.log_entries.append(text)
+    
+    def build_frame(self, token_color, mss_colors, mh_colors,
+                    request_msg=None, release_msg=None, permission_msg=None,
+                    handoff_line=None, log_text="", mh_override_pos=None):
+        """Build traces for a single frame using current token_pos"""
+        
         data = []
-
+        
         # Ring circle
         ring_angles = np.linspace(0, 2 * np.pi, 100)
         data.append(go.Scatter(
-            x=[radius * 1.1 * math.cos(a) for a in ring_angles],
-            y=[radius * 1.1 * math.sin(a) for a in ring_angles],
+            x=[self.radius * 1.1 * math.cos(a) for a in ring_angles],
+            y=[self.radius * 1.1 * math.sin(a) for a in ring_angles],
             mode='lines',
-            line=dict(color=colors['ring'], width=3),
+            line=dict(color=self.colors['ring'], width=3),
             hoverinfo='none', showlegend=False,
         ))
-
+        
         # Direction arrows
-        for i in range(num_mss):
-            mid_angle = (angles[i] + angles[(i + 1) % num_mss]) / 2
-            if i == num_mss - 1:
-                mid_angle = (angles[i] + angles[0] + 2 * math.pi) / 2
-            ax = radius * 1.1 * math.cos(mid_angle)
-            ay = radius * 1.1 * math.sin(mid_angle)
+        for i in range(self.num_mss):
+            mid_angle = (self.angles[i] + self.angles[(i + 1) % self.num_mss]) / 2
+            if i == self.num_mss - 1:
+                mid_angle = (self.angles[i] + self.angles[0] + 2 * math.pi) / 2
+            ax = self.radius * 1.1 * math.cos(mid_angle)
+            ay = self.radius * 1.1 * math.sin(mid_angle)
             arrow_angle = mid_angle + math.pi / 2
             arrow_len = 0.12
             data.append(go.Scatter(
                 x=[ax, ax + arrow_len * math.cos(arrow_angle)],
                 y=[ay, ay + arrow_len * math.sin(arrow_angle)],
-                mode='lines', line=dict(color=colors['ring'], width=2),
+                mode='lines', line=dict(color=self.colors['ring'], width=2),
                 hoverinfo='none', showlegend=False,
             ))
-
+        
         # Connection lines
-        for mss_id in range(num_mss):
+        for mss_id in range(self.num_mss):
             for mh_idx in range(3):
-                mx, my = mh_positions[mss_id][mh_idx]
-                mh_name = mh_names[mss_id][mh_idx]
+                mx, my = self.mh_positions[mss_id][mh_idx]
+                mh_name = self.mh_names[mss_id][mh_idx]
                 if mh_override_pos and mh_name in mh_override_pos:
                     continue
                 data.append(go.Scatter(
-                    x=[mss_x[mss_id], mx], y=[mss_y[mss_id], my],
-                    mode='lines', line=dict(color=colors['connection'], width=1, dash='dot'),
+                    x=[self.mss_x[mss_id], mx], y=[self.mss_y[mss_id], my],
+                    mode='lines', line=dict(color=self.colors['connection'], width=1, dash='dot'),
                     hoverinfo='none', showlegend=False,
                 ))
-
+        
         # MSS nodes
-        mss_color_list = [mss_colors.get(i, colors['mss_normal']) for i in range(num_mss)]
-        mss_sizes = [55 if i in mss_colors else 48 for i in range(num_mss)]
+        mss_color_list = [mss_colors.get(i, self.colors['mss_normal']) for i in range(self.num_mss)]
+        mss_sizes = [55 if i in mss_colors else 48 for i in range(self.num_mss)]
         data.append(go.Scatter(
-            x=mss_x, y=mss_y, mode='markers+text',
+            x=self.mss_x, y=self.mss_y, mode='markers+text',
             marker=dict(size=mss_sizes, color=mss_color_list,
                         line=dict(width=3, color='white'), symbol='square'),
-            text=[f'MSS_{i}' for i in range(num_mss)],
+            text=[f'MSS_{i}' for i in range(self.num_mss)],
             textposition='top center',
             textfont=dict(color='white', size=11, family='Arial Black'),
             hoverinfo='text',
-            hovertext=[f'MSS_{i}' for i in range(num_mss)],
+            hovertext=[f'MSS_{i}' for i in range(self.num_mss)],
             showlegend=False,
         ))
-
+        
         # MH nodes
-        for mss_id in range(num_mss):
+        for mss_id in range(self.num_mss):
             for mh_idx in range(3):
-                mh_name = mh_names[mss_id][mh_idx]
+                mh_name = self.mh_names[mss_id][mh_idx]
                 if mh_override_pos and mh_name in mh_override_pos:
                     mx, my = mh_override_pos[mh_name]
                 else:
-                    mx, my = mh_positions[mss_id][mh_idx]
-                mh_color = mh_colors.get(mh_name, colors['mh_normal'])
+                    mx, my = self.mh_positions[mss_id][mh_idx]
+                mh_color = mh_colors.get(mh_name, self.colors['mh_normal'])
                 mh_size = 28 if mh_name in mh_colors else 22
                 data.append(go.Scatter(
                     x=[mx], y=[my], mode='markers+text',
@@ -377,56 +394,53 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
                     textfont=dict(color='white', size=10),
                     hoverinfo='text', hovertext=mh_name, showlegend=False,
                 ))
-
-        # Request message
+        
+        # Messages
         if request_msg:
             data.append(go.Scatter(
                 x=[request_msg['x']], y=[request_msg['y']],
                 mode='markers+text',
-                marker=dict(size=15, color=colors['request_msg'],
+                marker=dict(size=15, color=self.colors['request_msg'],
                             symbol='square', line=dict(width=2, color='white')),
                 text=['REQ'], textposition='top center',
                 textfont=dict(color='white', size=8),
                 hoverinfo='text', hovertext='REQUEST', showlegend=False,
             ))
-
-        # Permission message
+        
         if permission_msg:
             data.append(go.Scatter(
                 x=[permission_msg['x']], y=[permission_msg['y']],
                 mode='markers+text',
-                marker=dict(size=15, color=colors['permission_msg'],
+                marker=dict(size=15, color=self.colors['permission_msg'],
                             symbol='square', line=dict(width=2, color='white')),
                 text=['PERM'], textposition='top center',
                 textfont=dict(color='white', size=8),
                 hoverinfo='text', hovertext='PERMISSION', showlegend=False,
             ))
-
-        # Release message
+        
         if release_msg:
             data.append(go.Scatter(
                 x=[release_msg['x']], y=[release_msg['y']],
                 mode='markers+text',
-                marker=dict(size=15, color=colors['release_msg'],
+                marker=dict(size=15, color=self.colors['release_msg'],
                             symbol='square', line=dict(width=2, color='white')),
                 text=['REL'], textposition='top center',
                 textfont=dict(color='white', size=8),
                 hoverinfo='text', hovertext='RELEASE', showlegend=False,
             ))
-
-        # Handoff line
+        
         if handoff_line:
             data.append(go.Scatter(
                 x=[handoff_line['x1'], handoff_line['x2']],
                 y=[handoff_line['y1'], handoff_line['y2']],
-                mode='lines', line=dict(color=colors['mh_handoff'], width=3, dash='dash'),
+                mode='lines', line=dict(color=self.colors['mh_handoff'], width=3, dash='dash'),
                 hoverinfo='none', showlegend=False,
             ))
-
-        # Token
-        token_angle = (token_pos / num_mss) * 2 * math.pi - math.pi / 2
-        tx = radius * math.cos(token_angle)
-        ty = radius * math.sin(token_angle)
+        
+        # Token (use current self.token_pos)
+        token_angle = (self.token_pos / self.num_mss) * 2 * math.pi - math.pi / 2
+        tx = self.radius * math.cos(token_angle)
+        ty = self.radius * math.sin(token_angle)
         data.append(go.Scatter(
             x=[tx], y=[ty], mode='markers+text',
             marker=dict(size=35, color=token_color, symbol='circle',
@@ -434,7 +448,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             text=['🔑'], textfont=dict(size=14),
             hoverinfo='text', hovertext='TOKEN', showlegend=False,
         ))
-
+        
         # Log text
         data.append(go.Scatter(
             x=[0], y=[-3.3], mode='text',
@@ -442,339 +456,373 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             textfont=dict(size=13, color='white'),
             hoverinfo='none', showlegend=False,
         ))
-
+        
         return data
-
-    def add_frame(**kw):
-        frames_data.append(build_traces(**kw))
-
-    # ── PHASE 1: MH sends REQUEST ──
-    phase_markers.append((len(frames_data),
-        f"Phase 1 — {requesting_mh} sends REQUEST to MSS_{req_mss_id}"))
-    log_entries.append(f"Phase 1: {requesting_mh} sends REQUEST to MSS_{req_mss_id}")
-
-    mh_x, mh_y = mh_positions[req_mss_id][req_mh_idx]
-    mss_target_x, mss_target_y = mss_x[req_mss_id], mss_y[req_mss_id]
-
-    for step in range(message_steps):
-        t = step / message_steps
-        add_frame(
-            token_pos=0, token_color=colors['token_free'],
-            mss_colors={}, mh_colors={requesting_mh: colors['mh_requesting']},
-            request_msg={'x': interpolate(mh_x, mss_target_x, t),
-                         'y': interpolate(mh_y, mss_target_y, t)},
-            log_text=f"📤 {requesting_mh} sending REQUEST to MSS_{req_mss_id}"
-        )
-
-    # ── PHASE 2: MSS queues request ──
-    phase_markers.append((len(frames_data),
-        f"Phase 2 — MSS_{req_mss_id} queues request"))
-    log_entries.append(f"Phase 2: MSS_{req_mss_id} receives request, queues it")
-
-    for _ in range(brief_stop):
-        add_frame(
-            token_pos=0, token_color=colors['token_free'],
-            mss_colors={req_mss_id: colors['mss_pending']},
-            mh_colors={requesting_mh: colors['mh_requesting']},
-            log_text=f"📋 MSS_{req_mss_id} queued request from {requesting_mh}"
-        )
-
-    # ── PHASE 3: Token circulates ──
-    phase_markers.append((len(frames_data),
-        "Phase 3 — Token circulates, checking each MSS"))
-    log_entries.append("Phase 3: Token circulates, briefly checking each MSS")
-
-    for current_mss_idx in range(req_mss_id):
-        for step in range(steps_between_mss):
-            t = step / steps_between_mss
-            add_frame(
-                token_pos=current_mss_idx + t, token_color=colors['token_free'],
-                mss_colors={req_mss_id: colors['mss_pending']},
-                mh_colors={requesting_mh: colors['mh_requesting']},
-                log_text=f"⚪ Token moving to MSS_{current_mss_idx}…"
-            )
-        for _ in range(brief_stop):
-            add_frame(
-                token_pos=current_mss_idx, token_color=colors['token_free'],
-                mss_colors={current_mss_idx: colors['mss_checking'],
-                            req_mss_id: colors['mss_pending']},
-                mh_colors={requesting_mh: colors['mh_requesting']},
-                log_text=f"🔍 MSS_{current_mss_idx}: No pending requests → releasing token"
-            )
-
-    # ── PHASE 4: Token arrives at requesting MSS ──
-    phase_markers.append((len(frames_data),
-        f"Phase 4 — Token arrives at MSS_{req_mss_id}"))
-    log_entries.append(f"Phase 4: Token arrives at MSS_{req_mss_id}")
-
-    start_mss = max(req_mss_id - 1, 0)
-    for step in range(steps_between_mss):
-        t = step / steps_between_mss
-        add_frame(
-            token_pos=start_mss + t + 1, token_color=colors['token_free'],
-            mss_colors={req_mss_id: colors['mss_pending']},
-            mh_colors={requesting_mh: colors['mh_requesting']},
-            log_text=f"⚪ Token approaching MSS_{req_mss_id}…"
-        )
-
-    # ── PHASE 5: MSS HOLDS token ──
-    phase_markers.append((len(frames_data),
-        f"Phase 5 — MSS_{req_mss_id} HOLDS token"))
-    log_entries.append(f"Phase 5: MSS_{req_mss_id} HOLDS token (pending request found)")
-
-    for _ in range(long_hold):
-        add_frame(
-            token_pos=req_mss_id, token_color=colors['token_held'],
-            mss_colors={req_mss_id: colors['mss_holding']},
-            mh_colors={requesting_mh: colors['mh_requesting']},
-            log_text=f"🟢 MSS_{req_mss_id} HOLDING token! Pending request found."
-        )
-
-    # ── PHASE 6: Grant PERMISSION ──
-    phase_markers.append((len(frames_data),
-        f"Phase 6 — MSS_{req_mss_id} grants PERMISSION"))
-    log_entries.append(f"Phase 6: MSS_{req_mss_id} grants PERMISSION to {requesting_mh}")
-
-    for step in range(message_steps):
-        t = step / message_steps
-        add_frame(
-            token_pos=req_mss_id, token_color=colors['token_held'],
-            mss_colors={req_mss_id: colors['mss_granting']},
-            mh_colors={requesting_mh: colors['mh_requesting']},
-            permission_msg={'x': interpolate(mss_target_x, mh_x, t),
-                            'y': interpolate(mss_target_y, mh_y, t)},
-            log_text=f"📨 MSS_{req_mss_id} sending PERMISSION to {requesting_mh}"
-        )
-
-    # ── PHASE 7: MH enters CS ──
-    phase_markers.append((len(frames_data),
-        f"Phase 7 — {requesting_mh} enters CRITICAL SECTION"))
-    log_entries.append(f"Phase 7: {requesting_mh} enters CRITICAL SECTION")
-
-    for _ in range(long_hold):
-        add_frame(
-            token_pos=req_mss_id, token_color=colors['token_held'],
-            mss_colors={req_mss_id: colors['mss_holding']},
-            mh_colors={requesting_mh: colors['mh_in_cs']},
-            log_text=f"🟣 {requesting_mh} in CRITICAL SECTION…"
-        )
-
-    # ── PHASE 8: MH sends RELEASE ──
-    phase_markers.append((len(frames_data),
-        f"Phase 8 — {requesting_mh} sends RELEASE"))
-    log_entries.append(f"Phase 8: {requesting_mh} sends RELEASE to MSS_{req_mss_id}")
-
-    for step in range(message_steps):
-        t = step / message_steps
-        add_frame(
-            token_pos=req_mss_id, token_color=colors['token_held'],
-            mss_colors={req_mss_id: colors['mss_holding']},
-            mh_colors={requesting_mh: colors['mh_in_cs']},
-            release_msg={'x': interpolate(mh_x, mss_target_x, t),
-                         'y': interpolate(mh_y, mss_target_y, t)},
-            log_text=f"📤 {requesting_mh} sending RELEASE to MSS_{req_mss_id}"
-        )
-
-    # ── PHASE 9: Token released, handoff MH requests ──
-    phase_markers.append((len(frames_data),
-        f"Phase 9 — Token released; {handoff_mh} sends new request"))
-    log_entries.append(f"Phase 9: Token released; {handoff_mh} sends new request")
-
-    handoff_mh_x, handoff_mh_y = mh_positions[handoff_mss_id][handoff_mh_idx]
-    handoff_mss_target_x = mss_x[handoff_mss_id]
-    handoff_mss_target_y = mss_y[handoff_mss_id]
-
-    for step in range(message_steps):
-        t = step / message_steps
-        add_frame(
-            token_pos=req_mss_id + t * 0.3, token_color=colors['token_free'],
-            mss_colors={}, mh_colors={handoff_mh: colors['mh_requesting']},
-            request_msg={'x': interpolate(handoff_mh_x, handoff_mss_target_x, t),
-                         'y': interpolate(handoff_mh_y, handoff_mss_target_y, t)},
-            log_text=f"📤 {handoff_mh} sending REQUEST to MSS_{handoff_mss_id}"
-        )
-
-    for step in range(brief_stop):
-        add_frame(
-            token_pos=req_mss_id + 0.3 + step * 0.02,
-            token_color=colors['token_free'],
-            mss_colors={handoff_mss_id: colors['mss_pending']},
-            mh_colors={handoff_mh: colors['mh_requesting']},
-            log_text=f"📋 MSS_{handoff_mss_id} queued request from {handoff_mh}"
-        )
-
-    # ── PHASE 10: HANDOFF ──
-    phase_markers.append((len(frames_data),
-        f"Phase 10 — HANDOFF! {handoff_mh} moves to MSS_{handoff_target_mss}"))
-    log_entries.append(f"Phase 10: HANDOFF! {handoff_mh} moves to MSS_{handoff_target_mss}")
-
-    new_mh_x, new_mh_y = mh_positions[handoff_target_mss][0]
-
-    for step in range(message_steps * 2):
-        t = step / (message_steps * 2)
-        cx = interpolate(handoff_mh_x, new_mh_x, t)
-        cy = interpolate(handoff_mh_y, new_mh_y, t)
-        add_frame(
-            token_pos=(req_mss_id + 0.5 + step * 0.03) % num_mss,
-            token_color=colors['token_free'],
-            mss_colors={handoff_mss_id: colors['mss_pending']},
-            mh_colors={handoff_mh: colors['mh_handoff']},
-            handoff_line={'x1': handoff_mh_x, 'y1': handoff_mh_y,
-                          'x2': cx, 'y2': cy},
-            log_text=f"📱 HANDOFF: {handoff_mh} moving to MSS_{handoff_target_mss}…",
-            mh_override_pos={handoff_mh: (cx, cy)}
-        )
-
-    # ── PHASE 11: Request KILLED ──
-    phase_markers.append((len(frames_data),
-        f"Phase 11 — Request KILLED at MSS_{handoff_mss_id}"))
-    log_entries.append(f"Phase 11: Request KILLED at MSS_{handoff_mss_id} (MH left)")
-
-    for step in range(long_hold):
-        mss_col = '#FF0000' if step % 6 < 3 else colors['mss_normal']
-        add_frame(
-            token_pos=(req_mss_id + 1.5 + step * 0.02) % num_mss,
-            token_color=colors['token_free'],
-            mss_colors={handoff_mss_id: mss_col},
-            mh_colors={},
-            log_text=f"❌ Request from {handoff_mh} KILLED! MH no longer at MSS_{handoff_mss_id}",
-            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
-        )
-
-    # ── PHASE 12: MH re-registers ──
-    phase_markers.append((len(frames_data),
-        f"Phase 12 — {handoff_mh} re-registers at MSS_{handoff_target_mss}"))
-    log_entries.append(f"Phase 12: {handoff_mh} re-registers at MSS_{handoff_target_mss}")
-
-    new_mss_target_x, new_mss_target_y = mss_x[handoff_target_mss], mss_y[handoff_target_mss]
-
-    for step in range(message_steps):
-        t = step / message_steps
-        add_frame(
-            token_pos=(req_mss_id + 2 + step * 0.02) % num_mss,
-            token_color=colors['token_free'],
+    
+    def add_frame(self, **kwargs):
+        """Add a frame to the animation"""
+        self.frames_data.append(self.build_frame(**kwargs))
+    
+    def move_token_to(self, target_pos, token_color, mss_colors, mh_colors, log_text, **extra):
+        """Smoothly move token from current position to target position"""
+        start_pos = self.token_pos
+        for step in range(self.move_steps):
+            t = (step + 1) / self.move_steps
+            self.token_pos = self.lerp(start_pos, target_pos, t)
+            self.add_frame(token_color=token_color, mss_colors=mss_colors,
+                          mh_colors=mh_colors, log_text=log_text, **extra)
+    
+    def hold_token(self, frames, token_color, mss_colors, mh_colors, log_text, **extra):
+        """Hold token at current position for N frames"""
+        for _ in range(frames):
+            self.add_frame(token_color=token_color, mss_colors=mss_colors,
+                          mh_colors=mh_colors, log_text=log_text, **extra)
+    
+    def send_message(self, from_pos, to_pos, msg_type, token_color, mss_colors, mh_colors, log_text, **extra):
+        """Animate a message traveling between two points"""
+        fx, fy = from_pos
+        tx, ty = to_pos
+        for step in range(self.msg_steps):
+            t = (step + 1) / self.msg_steps
+            mx = self.lerp(fx, tx, t)
+            my = self.lerp(fy, ty, t)
+            
+            msg_dict = {msg_type: {'x': mx, 'y': my}}
+            self.add_frame(token_color=token_color, mss_colors=mss_colors,
+                          mh_colors=mh_colors, log_text=log_text, **msg_dict, **extra)
+    
+    def build(self):
+        """Build the complete animation"""
+        
+        req_mh = self.requesting_mh
+        req_mss = self.req_mss_id
+        mh_x, mh_y = self.mh_positions[req_mss][self.req_mh_idx]
+        mss_x, mss_y = self.mss_x[req_mss], self.mss_y[req_mss]
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 1: MH sends REQUEST (token still at MSS_0)
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 1: {req_mh} sends REQUEST to MSS_{req_mss}")
+        self.token_pos = 0.0
+        
+        self.send_message(
+            from_pos=(mh_x, mh_y), to_pos=(mss_x, mss_y),
+            msg_type='request_msg',
+            token_color=self.colors['token_free'],
             mss_colors={},
-            mh_colors={handoff_mh: colors['mh_requesting']},
-            request_msg={'x': interpolate(new_mh_x, new_mss_target_x, t),
-                         'y': interpolate(new_mh_y, new_mss_target_y, t)},
-            log_text=f"📤 {handoff_mh} RE-REGISTERING at MSS_{handoff_target_mss}",
-            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+            mh_colors={req_mh: self.colors['mh_requesting']},
+            log_text=f"📤 {req_mh} sending REQUEST to MSS_{req_mss}"
         )
-
-    for _ in range(brief_stop):
-        add_frame(
-            token_pos=(req_mss_id + 2.2) % num_mss,
-            token_color=colors['token_free'],
-            mss_colors={handoff_target_mss: colors['mss_pending']},
-            mh_colors={handoff_mh: colors['mh_requesting']},
-            log_text=f"📋 MSS_{handoff_target_mss} queued NEW request from {handoff_mh}",
-            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 2: MSS queues request
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 2: MSS_{req_mss} queues request")
+        
+        self.hold_token(
+            frames=self.stop_frames,
+            token_color=self.colors['token_free'],
+            mss_colors={req_mss: self.colors['mss_pending']},
+            mh_colors={req_mh: self.colors['mh_requesting']},
+            log_text=f"📋 MSS_{req_mss} queued request from {req_mh}"
         )
-
-    # ── PHASE 13: Token checks intermediate MSSs ──
-    phase_markers.append((len(frames_data),
-        "Phase 13 — Token checks intermediate MSSs"))
-    log_entries.append("Phase 13: Token continues, checking intermediate MSSs")
-
-    current_pos = int(req_mss_id + 2.5) % num_mss
-    while current_pos != handoff_target_mss:
-        for step in range(steps_between_mss):
-            t = step / steps_between_mss
-            tp = (current_pos - 1 + t) % num_mss
-            add_frame(
-                token_pos=tp, token_color=colors['token_free'],
-                mss_colors={handoff_target_mss: colors['mss_pending']},
-                mh_colors={handoff_mh: colors['mh_requesting']},
-                log_text="⚪ Token moving…",
-                mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 3: Token circulates, checking each MSS
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase("Phase 3: Token circulates, checking each MSS")
+        
+        # Visit each MSS from 0 up to (but not including) req_mss
+        for target_mss in range(req_mss):
+            if target_mss > 0:
+                # Move to this MSS
+                self.move_token_to(
+                    target_pos=target_mss,
+                    token_color=self.colors['token_free'],
+                    mss_colors={req_mss: self.colors['mss_pending']},
+                    mh_colors={req_mh: self.colors['mh_requesting']},
+                    log_text=f"⚪ Token moving to MSS_{target_mss}…"
+                )
+            
+            # Brief stop to check
+            self.hold_token(
+                frames=self.stop_frames,
+                token_color=self.colors['token_free'],
+                mss_colors={target_mss: self.colors['mss_checking'],
+                           req_mss: self.colors['mss_pending']},
+                mh_colors={req_mh: self.colors['mh_requesting']},
+                log_text=f"🔍 MSS_{target_mss}: No pending requests → passing token"
             )
-        for _ in range(brief_stop):
-            add_frame(
-                token_pos=current_pos, token_color=colors['token_free'],
-                mss_colors={current_pos: colors['mss_checking'],
-                            handoff_target_mss: colors['mss_pending']},
-                mh_colors={handoff_mh: colors['mh_requesting']},
-                log_text=f"🔍 MSS_{current_pos}: No pending requests → releasing token",
-                mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 4: Token arrives at requesting MSS
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 4: Token arrives at MSS_{req_mss}")
+        
+        self.move_token_to(
+            target_pos=req_mss,
+            token_color=self.colors['token_free'],
+            mss_colors={req_mss: self.colors['mss_pending']},
+            mh_colors={req_mh: self.colors['mh_requesting']},
+            log_text=f"⚪ Token arriving at MSS_{req_mss}…"
+        )
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 5: MSS HOLDS token
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 5: MSS_{req_mss} HOLDS token")
+        
+        self.hold_token(
+            frames=self.hold_frames,
+            token_color=self.colors['token_held'],
+            mss_colors={req_mss: self.colors['mss_holding']},
+            mh_colors={req_mh: self.colors['mh_requesting']},
+            log_text=f"🟢 MSS_{req_mss} HOLDING token! Pending request found."
+        )
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 6: Grant PERMISSION
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 6: MSS_{req_mss} grants PERMISSION")
+        
+        self.send_message(
+            from_pos=(mss_x, mss_y), to_pos=(mh_x, mh_y),
+            msg_type='permission_msg',
+            token_color=self.colors['token_held'],
+            mss_colors={req_mss: self.colors['mss_granting']},
+            mh_colors={req_mh: self.colors['mh_requesting']},
+            log_text=f"📨 MSS_{req_mss} sending PERMISSION to {req_mh}"
+        )
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 7: MH in Critical Section
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 7: {req_mh} in CRITICAL SECTION")
+        
+        self.hold_token(
+            frames=self.hold_frames,
+            token_color=self.colors['token_held'],
+            mss_colors={req_mss: self.colors['mss_holding']},
+            mh_colors={req_mh: self.colors['mh_in_cs']},
+            log_text=f"🟣 {req_mh} executing in CRITICAL SECTION…"
+        )
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 8: MH sends RELEASE
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 8: {req_mh} sends RELEASE")
+        
+        self.send_message(
+            from_pos=(mh_x, mh_y), to_pos=(mss_x, mss_y),
+            msg_type='release_msg',
+            token_color=self.colors['token_held'],
+            mss_colors={req_mss: self.colors['mss_holding']},
+            mh_colors={req_mh: self.colors['mh_in_cs']},
+            log_text=f"📤 {req_mh} sending RELEASE to MSS_{req_mss}"
+        )
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 9: Handoff MH sends request
+        # ══════════════════════════════════════════════════════════════
+        ho_mh = self.handoff_mh
+        ho_mss = self.handoff_mss_id
+        ho_mh_x, ho_mh_y = self.mh_positions[ho_mss][self.handoff_mh_idx]
+        ho_mss_x, ho_mss_y = self.mss_x[ho_mss], self.mss_y[ho_mss]
+        
+        self.add_phase(f"Phase 9: Token released; {ho_mh} sends request")
+        
+        # Token starts moving, handoff MH sends request
+        self.send_message(
+            from_pos=(ho_mh_x, ho_mh_y), to_pos=(ho_mss_x, ho_mss_y),
+            msg_type='request_msg',
+            token_color=self.colors['token_free'],
+            mss_colors={},
+            mh_colors={ho_mh: self.colors['mh_requesting']},
+            log_text=f"📤 {ho_mh} sending REQUEST to MSS_{ho_mss}"
+        )
+        
+        self.hold_token(
+            frames=self.stop_frames,
+            token_color=self.colors['token_free'],
+            mss_colors={ho_mss: self.colors['mss_pending']},
+            mh_colors={ho_mh: self.colors['mh_requesting']},
+            log_text=f"📋 MSS_{ho_mss} queued request from {ho_mh}"
+        )
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 10: HANDOFF - MH moves to new MSS
+        # ══════════════════════════════════════════════════════════════
+        new_mss = self.handoff_target_mss
+        new_mh_x, new_mh_y = self.mh_positions[new_mss][0]
+        
+        self.add_phase(f"Phase 10: HANDOFF! {ho_mh} moves to MSS_{new_mss}")
+        
+        for step in range(self.msg_steps * 2):
+            t = (step + 1) / (self.msg_steps * 2)
+            cx = self.lerp(ho_mh_x, new_mh_x, t)
+            cy = self.lerp(ho_mh_y, new_mh_y, t)
+            
+            # Token also moves slightly
+            self.token_pos = self.lerp(req_mss, req_mss + 0.5, t)
+            
+            self.add_frame(
+                token_color=self.colors['token_free'],
+                mss_colors={ho_mss: self.colors['mss_pending']},
+                mh_colors={ho_mh: self.colors['mh_handoff']},
+                handoff_line={'x1': ho_mh_x, 'y1': ho_mh_y, 'x2': cx, 'y2': cy},
+                log_text=f"📱 HANDOFF: {ho_mh} moving to MSS_{new_mss}…",
+                mh_override_pos={ho_mh: (cx, cy)}
             )
-        current_pos = (current_pos + 1) % num_mss
-
-    # ── PHASE 14: Token grants to handoff MH at new MSS ──
-    phase_markers.append((len(frames_data),
-        f"Phase 14 — Token grants to {handoff_mh} at new MSS"))
-    log_entries.append(f"Phase 14: Token at MSS_{handoff_target_mss}, grants to {handoff_mh}")
-
-    for step in range(steps_between_mss):
-        t = step / steps_between_mss
-        prev_m = (handoff_target_mss - 1) % num_mss
-        add_frame(
-            token_pos=(prev_m + t) % num_mss, token_color=colors['token_free'],
-            mss_colors={handoff_target_mss: colors['mss_pending']},
-            mh_colors={handoff_mh: colors['mh_requesting']},
-            log_text=f"⚪ Token approaching MSS_{handoff_target_mss}…",
-            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 11: Request KILLED
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 11: Request KILLED at MSS_{ho_mss}")
+        
+        for step in range(self.hold_frames):
+            mss_col = '#FF0000' if step % 6 < 3 else self.colors['mss_normal']
+            self.add_frame(
+                token_color=self.colors['token_free'],
+                mss_colors={ho_mss: mss_col},
+                mh_colors={},
+                log_text=f"❌ Request from {ho_mh} KILLED! MH no longer at MSS_{ho_mss}",
+                mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
+            )
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 12: MH re-registers at new MSS
+        # ══════════════════════════════════════════════════════════════
+        new_mss_x, new_mss_y = self.mss_x[new_mss], self.mss_y[new_mss]
+        
+        self.add_phase(f"Phase 12: {ho_mh} re-registers at MSS_{new_mss}")
+        
+        for step in range(self.msg_steps):
+            t = (step + 1) / self.msg_steps
+            mx = self.lerp(new_mh_x, new_mss_x, t)
+            my = self.lerp(new_mh_y, new_mss_y, t)
+            
+            self.add_frame(
+                token_color=self.colors['token_free'],
+                mss_colors={},
+                mh_colors={ho_mh: self.colors['mh_requesting']},
+                request_msg={'x': mx, 'y': my},
+                log_text=f"📤 {ho_mh} RE-REGISTERING at MSS_{new_mss}",
+                mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
+            )
+        
+        self.hold_token(
+            frames=self.stop_frames,
+            token_color=self.colors['token_free'],
+            mss_colors={new_mss: self.colors['mss_pending']},
+            mh_colors={ho_mh: self.colors['mh_requesting']},
+            log_text=f"📋 MSS_{new_mss} queued NEW request from {ho_mh}",
+            mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
         )
-
-    for _ in range(long_hold):
-        add_frame(
-            token_pos=handoff_target_mss, token_color=colors['token_held'],
-            mss_colors={handoff_target_mss: colors['mss_holding']},
-            mh_colors={handoff_mh: colors['mh_requesting']},
-            log_text=f"🟢 MSS_{handoff_target_mss} HOLDING token!",
-            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 13: Token continues to new MSS
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase("Phase 13: Token continues to new MSS")
+        
+        # Calculate intermediate MSSs to visit
+        current = int(self.token_pos) + 1
+        while current % self.num_mss != new_mss:
+            target = current % self.num_mss
+            
+            self.move_token_to(
+                target_pos=target,
+                token_color=self.colors['token_free'],
+                mss_colors={new_mss: self.colors['mss_pending']},
+                mh_colors={ho_mh: self.colors['mh_requesting']},
+                log_text=f"⚪ Token moving to MSS_{target}…",
+                mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
+            )
+            
+            self.hold_token(
+                frames=self.stop_frames,
+                token_color=self.colors['token_free'],
+                mss_colors={target: self.colors['mss_checking'],
+                           new_mss: self.colors['mss_pending']},
+                mh_colors={ho_mh: self.colors['mh_requesting']},
+                log_text=f"🔍 MSS_{target}: No pending requests → passing token",
+                mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
+            )
+            
+            current += 1
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 14: Token grants to handoff MH at new MSS
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase(f"Phase 14: Token grants to {ho_mh} at MSS_{new_mss}")
+        
+        self.move_token_to(
+            target_pos=new_mss,
+            token_color=self.colors['token_free'],
+            mss_colors={new_mss: self.colors['mss_pending']},
+            mh_colors={ho_mh: self.colors['mh_requesting']},
+            log_text=f"⚪ Token arriving at MSS_{new_mss}…",
+            mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
         )
-
-    for step in range(message_steps):
-        t = step / message_steps
-        add_frame(
-            token_pos=handoff_target_mss, token_color=colors['token_held'],
-            mss_colors={handoff_target_mss: colors['mss_granting']},
-            mh_colors={handoff_mh: colors['mh_requesting']},
-            permission_msg={'x': interpolate(new_mss_target_x, new_mh_x, t),
-                            'y': interpolate(new_mss_target_y, new_mh_y, t)},
-            log_text=f"📨 MSS_{handoff_target_mss} granting PERMISSION",
-            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+        
+        self.hold_token(
+            frames=self.hold_frames,
+            token_color=self.colors['token_held'],
+            mss_colors={new_mss: self.colors['mss_holding']},
+            mh_colors={ho_mh: self.colors['mh_requesting']},
+            log_text=f"🟢 MSS_{new_mss} HOLDING token!",
+            mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
         )
-
-    for _ in range(long_hold):
-        add_frame(
-            token_pos=handoff_target_mss, token_color=colors['token_held'],
-            mss_colors={handoff_target_mss: colors['mss_holding']},
-            mh_colors={handoff_mh: colors['mh_in_cs']},
-            log_text=f"🟣 {handoff_mh} in CRITICAL SECTION (at new MSS)",
-            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+        
+        self.send_message(
+            from_pos=(new_mss_x, new_mss_y), to_pos=(new_mh_x, new_mh_y),
+            msg_type='permission_msg',
+            token_color=self.colors['token_held'],
+            mss_colors={new_mss: self.colors['mss_granting']},
+            mh_colors={ho_mh: self.colors['mh_requesting']},
+            log_text=f"📨 MSS_{new_mss} granting PERMISSION",
+            mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
         )
-
-    # ── PHASE 15: Normal operation ──
-    phase_markers.append((len(frames_data),
-        "Phase 15 — Normal operation resumes"))
-    log_entries.append("Phase 15: Normal operation resumes")
-
-    for step in range(steps_between_mss * 2):
-        add_frame(
-            token_pos=(handoff_target_mss + step / steps_between_mss) % num_mss,
-            token_color=colors['token_free'],
-            mss_colors={}, mh_colors={},
-            log_text="⚪ Normal operation: free token circulating…"
+        
+        self.hold_token(
+            frames=self.hold_frames,
+            token_color=self.colors['token_held'],
+            mss_colors={new_mss: self.colors['mss_holding']},
+            mh_colors={ho_mh: self.colors['mh_in_cs']},
+            log_text=f"🟣 {ho_mh} in CRITICAL SECTION (at new MSS)",
+            mh_override_pos={ho_mh: (new_mh_x, new_mh_y)}
         )
-
-    # Layout
-    layout = go.Layout(
-        title=dict(
-            text='<b>Token Ring Mutual Exclusion — MSS / MH Architecture</b>',
-            font=dict(color='white', size=18), x=0.5,
-        ),
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                    range=[-3.5, 3.5]),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                    range=[-3.8, 3.5], scaleanchor='x'),
-        plot_bgcolor='#1a1a2e', paper_bgcolor='#1a1a2e',
-        height=700,
-        margin=dict(l=20, r=20, t=60, b=60),
-        showlegend=False,
-    )
-
-    return frames_data, layout, phase_markers, log_entries
+        
+        # ══════════════════════════════════════════════════════════════
+        # PHASE 15: Normal operation
+        # ══════════════════════════════════════════════════════════════
+        self.add_phase("Phase 15: Normal operation resumes")
+        
+        for step in range(self.move_steps * 2):
+            t = (step + 1) / (self.move_steps * 2)
+            self.token_pos = new_mss + t * 2
+            self.add_frame(
+                token_color=self.colors['token_free'],
+                mss_colors={}, mh_colors={},
+                log_text="⚪ Normal operation: free token circulating…"
+            )
+        
+        # Build layout
+        layout = go.Layout(
+            title=dict(
+                text='<b>Token Ring Mutual Exclusion — MSS / MH Architecture</b>',
+                font=dict(color='white', size=18), x=0.5,
+            ),
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
+                       range=[-3.5, 3.5]),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
+                       range=[-3.8, 3.5], scaleanchor='x'),
+            plot_bgcolor='#1a1a2e', paper_bgcolor='#1a1a2e',
+            height=700,
+            margin=dict(l=20, r=20, t=60, b=60),
+            showlegend=False,
+        )
+        
+        return self.frames_data, layout, self.phase_markers, self.log_entries
 
 
 def create_static_ring_with_mhs(mss_list):
@@ -836,9 +884,9 @@ def create_static_ring_with_mhs(mss_list):
     fig.update_layout(
         title=dict(text='<b>MSS-MH Token Ring</b>', font=dict(size=16)),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                    range=[-3.5, 3.5]),
+                   range=[-3.5, 3.5]),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                    range=[-3.5, 3.5], scaleanchor='x'),
+                   range=[-3.5, 3.5], scaleanchor='x'),
         height=550, plot_bgcolor='white', paper_bgcolor='white',
         margin=dict(l=20, r=20, t=50, b=20),
     )
@@ -891,10 +939,9 @@ if 'ring' not in st.session_state:
     st.session_state.reqs_made = []
 
 _defaults = {
-    'anim_playing': False, 'anim_frame': 0,
     'anim_frames': None, 'anim_layout': None,
     'anim_phases': [], 'anim_log_entries': [],
-    'anim_speed': 0.08,
+    'anim_frame': 0, 'anim_speed': 0.07,
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
@@ -965,12 +1012,12 @@ with tab1:
     st.info('''
     **Demo Scenario:** This animation demonstrates:
     1. **MH sends REQUEST** to its MSS **before** token arrives
-    2. Token **briefly stops** at each MSS to check for pending requests
-    3. If no pending requests → token released quickly
+    2. Token **smoothly moves** and **briefly stops** at each MSS
+    3. If no pending requests → token passes quickly
     4. If pending request found → MSS **HOLDS** token longer
-    5. **Handoff scenario:** MH moves to new MSS, old request killed, must re-register
+    5. **Handoff scenario:** MH moves to new MSS, old request killed
 
-    Click **Generate Animation** then use **▶ Play / ⏸ Pause** to watch.
+    Click **Generate Animation** then **▶ Play** to watch smoothly!
     ''')
 
     # ── Configuration ──
@@ -992,17 +1039,13 @@ with tab1:
 
     if st.button('🎬 Generate Animation', use_container_width=True, type='primary'):
         with st.spinner('Generating frames…'):
-            fd, ly, pm, le = create_comprehensive_animation(
-                num_mss=num_mss_anim,
-                requesting_mh=requesting_mh,
-                handoff_mh=handoff_mh,
-            )
+            builder = AnimationBuilder(num_mss_anim, requesting_mh, handoff_mh)
+            fd, ly, pm, le = builder.build()
             st.session_state.anim_frames = fd
             st.session_state.anim_layout = ly
             st.session_state.anim_phases = pm
             st.session_state.anim_log_entries = le
             st.session_state.anim_frame = 0
-            st.session_state.anim_playing = False
         st.rerun()
 
     st.markdown('---')
@@ -1013,35 +1056,7 @@ with tab1:
 
         st.markdown('#### Playback Controls')
 
-        ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = st.columns(5)
-        with ctrl1:
-            if st.button('⏮️ Start', use_container_width=True):
-                st.session_state.anim_frame = 0
-                st.session_state.anim_playing = False
-        with ctrl2:
-            if st.button('◀️ Prev', use_container_width=True):
-                st.session_state.anim_playing = False
-                st.session_state.anim_frame = max(0, st.session_state.anim_frame - 1)
-        with ctrl3:
-            if st.session_state.anim_playing:
-                if st.button('⏸️ Pause', use_container_width=True, type='primary'):
-                    st.session_state.anim_playing = False
-                    st.rerun()
-            else:
-                if st.button('▶️ Play', use_container_width=True, type='primary'):
-                    st.session_state.anim_playing = True
-                    st.rerun()
-        with ctrl4:
-            if st.button('▶️ Next', use_container_width=True):
-                st.session_state.anim_playing = False
-                st.session_state.anim_frame = min(total - 1,
-                                                   st.session_state.anim_frame + 1)
-        with ctrl5:
-            if st.button('⏭️ End', use_container_width=True):
-                st.session_state.anim_frame = total - 1
-                st.session_state.anim_playing = False
-
-        # Speed selector — plain strings to avoid tuple-matching bug
+        # Speed selector
         speed_label = st.select_slider(
             'Speed',
             options=list(SPEED_MAP.keys()),
@@ -1050,18 +1065,36 @@ with tab1:
         )
         st.session_state.anim_speed = SPEED_MAP[speed_label]
 
-        # Frame slider (only interactive when paused)
-        if not st.session_state.anim_playing:
-            new_frame = st.slider('Frame', 0, total - 1,
-                                  st.session_state.anim_frame,
-                                  key='frame_slider')
-            st.session_state.anim_frame = new_frame
-        else:
-            st.slider('Frame', 0, total - 1,
-                      st.session_state.anim_frame,
-                      key='frame_slider_readonly', disabled=True)
+        # Control buttons
+        ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = st.columns(5)
+        with ctrl1:
+            start_btn = st.button('⏮️ Start', use_container_width=True)
+        with ctrl2:
+            prev_btn = st.button('◀️ Prev', use_container_width=True)
+        with ctrl3:
+            play_btn = st.button('▶️ Play', use_container_width=True, type='primary')
+        with ctrl4:
+            next_btn = st.button('▶️ Next', use_container_width=True)
+        with ctrl5:
+            end_btn = st.button('⏭️ End', use_container_width=True)
 
-        # Current phase label
+        # Handle button actions
+        if start_btn:
+            st.session_state.anim_frame = 0
+        if prev_btn:
+            st.session_state.anim_frame = max(0, st.session_state.anim_frame - 1)
+        if next_btn:
+            st.session_state.anim_frame = min(total - 1, st.session_state.anim_frame + 1)
+        if end_btn:
+            st.session_state.anim_frame = total - 1
+
+        # Frame slider
+        new_frame = st.slider('Frame', 0, total - 1,
+                              st.session_state.anim_frame,
+                              key='frame_slider')
+        st.session_state.anim_frame = new_frame
+
+        # Current phase
         current_phase = ""
         for pidx, ptxt in st.session_state.anim_phases:
             if st.session_state.anim_frame >= pidx:
@@ -1069,25 +1102,34 @@ with tab1:
         if current_phase:
             st.markdown(f'**🔶 {current_phase}**')
 
-        status = "  ▶ PLAYING" if st.session_state.anim_playing else ""
-        st.caption(f'Frame {st.session_state.anim_frame + 1} / {total}{status}')
+        st.caption(f'Frame {st.session_state.anim_frame + 1} / {total}')
 
-        # ── Render current frame ──
-        chart_slot = st.empty()
-        frame_traces = st.session_state.anim_frames[st.session_state.anim_frame]
-        fig = go.Figure(data=frame_traces, layout=st.session_state.anim_layout)
-        chart_slot.plotly_chart(fig, use_container_width=True, key='anim_chart')
+        # Chart placeholder - single container for smooth updates
+        chart_placeholder = st.empty()
 
-        # ── Auto-advance when playing ──
-        if st.session_state.anim_playing:
-            if st.session_state.anim_frame < total - 1:
+        # If Play was clicked, run smooth animation loop
+        if play_btn:
+            for frame_idx in range(st.session_state.anim_frame, total):
+                # Update phase display
+                for pidx, ptxt in st.session_state.anim_phases:
+                    if frame_idx >= pidx:
+                        current_phase = ptxt
+
+                # Render frame
+                frame_traces = st.session_state.anim_frames[frame_idx]
+                fig = go.Figure(data=frame_traces, layout=st.session_state.anim_layout)
+                chart_placeholder.plotly_chart(fig, use_container_width=True, key=f'anim_{frame_idx}')
+
+                st.session_state.anim_frame = frame_idx
                 time.sleep(st.session_state.anim_speed)
-                st.session_state.anim_frame += 1
-                st.rerun()
-            else:
-                st.session_state.anim_playing = False
-                st.toast('✅ Animation complete!')
-                st.rerun()
+
+            st.toast('✅ Animation complete!')
+        else:
+            # Show current static frame
+            frame_traces = st.session_state.anim_frames[st.session_state.anim_frame]
+            fig = go.Figure(data=frame_traces, layout=st.session_state.anim_layout)
+            chart_placeholder.plotly_chart(fig, use_container_width=True, key='anim_static')
+
     else:
         st.warning('👆 Click **Generate Animation** to begin.')
 
