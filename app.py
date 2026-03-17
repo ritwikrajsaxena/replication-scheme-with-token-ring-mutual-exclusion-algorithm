@@ -1,9 +1,9 @@
 """
-Token-Ring Mutual Exclusion with Replication — Fully Automated Random Scenarios
-================================================================================
+Token-Ring Mutual Exclusion with Replication — GLOBAL PRIORITY FIXED
+====================================================================
 Tab 1: Original Token Ring Animation (full scenario with handoff)
 Tab 2: Request Broadcasting Animation
-Tab 3: Priority-Based Granting Animation
+Tab 3: Priority-Based Granting Animation (GLOBAL PRIORITY)
 Tab 4: Replicated Request Logs
 Tab 5: Queue States Animation
 """
@@ -224,21 +224,18 @@ class MainTokenRingAnimator:
 
         def L(s): self.logs.append(s)
 
-        # Phase 1
         L(f"═══ PHASE 1: {self.req_mh} sends REQUEST to MSS_{self.rms} ═══")
         L(f"  • {self.req_mh} initiates critical section request")
         L(f"  • Request travels from MH to local MSS_{self.rms}")
         self._msg((rx,ry),(smx,smy),'rm', tc=C['tf'], sc={}, hc={self.req_mh:C['mr']},
                   txt=f"📤 {self.req_mh} → REQUEST → MSS_{self.rms}")
 
-        # Phase 2
         L(f"═══ PHASE 2: MSS_{self.rms} queues and BROADCASTS ═══")
         L(f"  • MSS_{self.rms} adds request to local queue")
         L(f"  • MSS_{self.rms} broadcasts to {g.n-1} other MSSs")
         self._hold(self.ST, tc=C['tf'], sc={self.rms:C['mp']}, hc={self.req_mh:C['mr']},
                    txt=f"📋 MSS_{self.rms} queued · Broadcasting to {g.n-1} MSSs")
 
-        # Phase 3
         L(f"═══ PHASE 3: Token circulates through ring ═══")
         for node in range(1, self.rms+1):
             L(f"  • Token visits MSS_{node}" + (" ← PENDING REQUEST FOUND!" if node==self.rms else " (empty queue)"))
@@ -249,35 +246,30 @@ class MainTokenRingAnimator:
                 self._hold(self.ST, tc=C['tf'], sc={node:C['ck'], self.rms:C['mp']},
                            hc={self.req_mh:C['mr']}, txt=f"🔍 MSS_{node}: queue empty → pass")
 
-        # Phase 4
         L(f"═══ PHASE 4: MSS_{self.rms} HOLDS token ═══")
         L(f"  • Pending request from {self.req_mh} found")
         L(f"  • Token held while granting process begins")
         self._hold(self.HL, tc=C['th'], sc={self.rms:C['mh']}, hc={self.req_mh:C['mr']},
                    txt=f"🟢 MSS_{self.rms} HOLDS token!")
 
-        # Phase 5
         L(f"═══ PHASE 5: PERMISSION granted to {self.req_mh} ═══")
         L(f"  • MSS_{self.rms} sends PERMISSION message")
         L(f"  • {self.req_mh} receives permission to enter CS")
         self._msg((smx,smy),(rx,ry),'pm', tc=C['th'], sc={self.rms:C['mg']}, hc={self.req_mh:C['mr']},
                   txt=f"📨 PERMISSION → {self.req_mh}")
 
-        # Phase 6
         L(f"═══ PHASE 6: {self.req_mh} in CRITICAL SECTION ═══")
         L(f"  • {self.req_mh} executing critical section code")
         L(f"  • Token remains held at MSS_{self.rms}")
         self._hold(self.HL, tc=C['th'], sc={self.rms:C['mh']}, hc={self.req_mh:C['mc']},
                    txt=f"🟣 {self.req_mh} in CS")
 
-        # Phase 7
         L(f"═══ PHASE 7: {self.req_mh} sends RELEASE ═══")
         L(f"  • {self.req_mh} finished critical section")
         L(f"  • RELEASE message sent to MSS_{self.rms}")
         self._msg((rx,ry),(smx,smy),'rl', tc=C['th'], sc={self.rms:C['mh']}, hc={self.req_mh:C['mc']},
                   txt=f"📤 RELEASE → MSS_{self.rms}")
 
-        # Phase 8
         L(f"═══ PHASE 8: {self.ho_mh} sends new REQUEST ═══")
         L(f"  • {self.ho_mh} initiates request at MSS_{self.hms}")
         L(f"  • Request queued and broadcast begins")
@@ -286,7 +278,6 @@ class MainTokenRingAnimator:
         self._hold(self.ST, tc=C['tf'], sc={self.hms:C['mp']}, hc={self.ho_mh:C['mr']},
                    txt=f"📋 MSS_{self.hms} queued · Broadcasting")
 
-        # Phase 9: Handoff
         L(f"═══ PHASE 9: HANDOFF - {self.ho_mh} moves to MSS_{self.htgt} ═══")
         L(f"  • {self.ho_mh} physically moves to new cell")
         L(f"  • Moving from MSS_{self.hms} → MSS_{self.htgt}")
@@ -300,7 +291,6 @@ class MainTokenRingAnimator:
                 txt=f"📱 HANDOFF → MSS_{self.htgt}",
                 ovr={self.ho_mh:(cx,cy)}))
 
-        # Phase 10: Kill
         L(f"═══ PHASE 10: Request KILLED at MSS_{self.hms} ═══")
         L(f"  • {self.ho_mh} no longer at MSS_{self.hms}")
         L(f"  • Original request invalidated")
@@ -310,7 +300,6 @@ class MainTokenRingAnimator:
                 txt=f"❌ Request KILLED at MSS_{self.hms}",
                 ovr={self.ho_mh:(nx,ny)}))
 
-        # Phase 11: Re-register
         L(f"═══ PHASE 11: {self.ho_mh} re-registers at MSS_{self.htgt} ═══")
         L(f"  • {self.ho_mh} sends new request to MSS_{self.htgt}")
         L(f"  • New broadcast initiated")
@@ -319,7 +308,6 @@ class MainTokenRingAnimator:
         self._hold(self.ST, tc=C['tf'], sc={self.htgt:C['mp']}, hc={self.ho_mh:C['mr']},
                    txt=f"📋 MSS_{self.htgt} queued new request", ovr={self.ho_mh:(nx,ny)})
 
-        # Phase 12: Token continues
         L(f"═══ PHASE 12: Token continues circulation ═══")
         cid = int(self.tp)+1
         safety = 0
@@ -333,7 +321,6 @@ class MainTokenRingAnimator:
                        ovr={self.ho_mh:(nx,ny)})
             cid += 1; safety += 1
 
-        # Phase 13: Grant at new MSS
         L(f"═══ PHASE 13: Token grants to {self.ho_mh} at MSS_{self.htgt} ═══")
         L(f"  • Token arrives at MSS_{self.htgt}")
         L(f"  • {self.ho_mh}'s request is granted")
@@ -344,21 +331,18 @@ class MainTokenRingAnimator:
         self._msg((nmx,nmy),(nx,ny),'pm', tc=C['th'], sc={self.htgt:C['mg']}, hc={self.ho_mh:C['mr']},
                   txt=f"📨 PERMISSION → {self.ho_mh}", ovr={self.ho_mh:(nx,ny)})
 
-        # Phase 14: CS at new MSS
         L(f"═══ PHASE 14: {self.ho_mh} in CRITICAL SECTION ═══")
         L(f"  • {self.ho_mh} executing CS at new location")
         L(f"  • Handoff scenario completed successfully")
         self._hold(self.HL, tc=C['th'], sc={self.htgt:C['mh']}, hc={self.ho_mh:C['mc']},
                    txt=f"🟣 {self.ho_mh} in CS (new MSS)", ovr={self.ho_mh:(nx,ny)})
 
-        # Phase 15: Resume
         L(f"═══ PHASE 15: Normal operation resumes ═══")
         L(f"  • Token released for further circulation")
         for i in range(self.MS*2):
             self.tp += 1.0/self.MS
             self.frames.append(self._frame(tc=C['tf'], sc={}, hc={}, txt="⚪ Normal circulation…"))
 
-        # Package
         pf = [go.Frame(data=f, name=str(i)) for i, f in enumerate(self.frames)]
         lo = go.Layout(
             title=dict(text='<b>Token Ring Animation — Full Scenario</b>', font=dict(size=16, color='white'), x=0.5),
@@ -404,12 +388,10 @@ class BroadcastAnimator:
         g = self.g
         data = []
         
-        # Ring
         ra = np.linspace(0, 2 * np.pi, 100)
         data.append(go.Scatter(x=g.R*1.08*np.cos(ra), y=g.R*1.08*np.sin(ra),
                                mode='lines', line=dict(color='#888', width=2), hoverinfo='none'))
         
-        # MSS
         mss_colors, mss_sizes = [], []
         for i in range(g.n):
             if all_green:
@@ -424,7 +406,6 @@ class BroadcastAnimator:
                                text=[f'MSS_{i}' for i in range(g.n)], textposition='top center',
                                textfont=dict(size=11, color='#333', family='Arial Black'), hoverinfo='none'))
         
-        # MHs
         mh_x, mh_y, mh_colors, mh_sizes, mh_text = [], [], [], [], []
         for s in range(g.n):
             for j in range(3):
@@ -440,7 +421,6 @@ class BroadcastAnimator:
                                marker=dict(size=mh_sizes, color=mh_colors, line=dict(width=2, color='white')),
                                text=mh_text, textposition='bottom center', textfont=dict(size=9, color='#333'), hoverinfo='none'))
         
-        # Connections
         conn_x, conn_y = [], []
         for s in range(g.n):
             for j in range(3):
@@ -449,14 +429,12 @@ class BroadcastAnimator:
         data.append(go.Scatter(x=conn_x, y=conn_y, mode='lines',
                                line=dict(color='#ccc', width=1, dash='dot'), hoverinfo='none'))
         
-        # Arrows
         if arrows:
             data.append(go.Scatter(x=arrows['x'], y=arrows['y'], mode='lines',
                                    line=dict(color='#FF5722', width=2), hoverinfo='none'))
         else:
             data.append(go.Scatter(x=[None], y=[None], mode='lines', hoverinfo='none'))
         
-        # Message
         if msg_pos:
             data.append(go.Scatter(x=[msg_pos[0]], y=[msg_pos[1]], mode='markers+text',
                                    marker=dict(size=20, color='#FF5722', symbol='diamond', line=dict(width=2, color='white')),
@@ -465,7 +443,6 @@ class BroadcastAnimator:
         else:
             data.append(go.Scatter(x=[None], y=[None], mode='markers', opacity=0, hoverinfo='none'))
         
-        # Queue badges
         badge_x, badge_y, badge_text = [], [], []
         for i in range(g.n):
             badge_x.append(g.sx[i]); badge_y.append(g.sy[i] - 0.4)
@@ -474,7 +451,6 @@ class BroadcastAnimator:
         data.append(go.Scatter(x=badge_x, y=badge_y, mode='text', text=badge_text,
                                textfont=dict(size=12, color='#FF5722', family='Arial Black'), hoverinfo='none'))
         
-        # Log
         data.append(go.Scatter(x=[0], y=[-3.1], mode='text', text=[f'<b>{log_text}</b>'],
                                textfont=dict(size=14, color='#333'), hoverinfo='none'))
         return data
@@ -502,7 +478,6 @@ class BroadcastAnimator:
             self.logs.append(f"  Source MSS: MSS_{src_mss}")
             self.logs.append("")
             
-            # Phase A: MH → local MSS
             self.logs.append(f"  [Step A] {mh_name} → MSS_{src_mss}")
             self.logs.append(f"           Sending request message...")
             for step in range(self.MSG_STEPS):
@@ -526,7 +501,6 @@ class BroadcastAnimator:
                     arrows={'x': list(arrows_x), 'y': list(arrows_y)} if arrows_x else None,
                     log_text=f"📋 MSS_{src_mss} queued (P={req.priority}, T={req.timestamp})"))
             
-            # Phase B: Broadcast
             self.logs.append("")
             self.logs.append(f"  [Step B] BROADCASTING to {g.n - 1} other MSSs:")
             
@@ -535,7 +509,7 @@ class BroadcastAnimator:
                     continue
                 
                 tgt_x, tgt_y = g.sx[tgt_mss], g.sy[tgt_mss]
-                self.logs.append(f"           MSS_{src_mss} → MSS_{tgt_mss} ... ", )
+                self.logs.append(f"           MSS_{src_mss} → MSS_{tgt_mss} ... ")
                 
                 for step in range(self.MSG_STEPS):
                     t = (step + 1) / self.MSG_STEPS
@@ -568,7 +542,6 @@ class BroadcastAnimator:
             self.logs.append("")
             self.logs.append(f"  [DONE] Request from {mh_name} replicated to ALL {g.n} MSSs")
         
-        # Final
         self.logs.append("")
         self.logs.append("═══════════════════════════════════════════════════════")
         self.logs.append(f"  COMPLETE: {len(self.requests)} requests broadcast to all {g.n} MSSs")
@@ -602,11 +575,11 @@ class BroadcastAnimator:
 
 
 # ═══════════════════════════════════════════════════════════════
-#               TAB 3: PRIORITY GRANTING ANIMATION
+#         TAB 3: PRIORITY GRANTING (GLOBAL PRIORITY FIXED)
 # ═══════════════════════════════════════════════════════════════
 
 class GrantingAnimator:
-    """Animates token circulation with priority-based granting."""
+    """Animates token circulation with GLOBAL priority-based granting."""
     
     def __init__(self, g: Geom, requests: List[Request]):
         self.g = g
@@ -618,9 +591,12 @@ class GrantingAnimator:
         self.HOLD_STEPS = 8
         self.GRANT_STEPS = 12
 
-    def _get_pending_at_mss(self, mss_id):
-        pending = [r for r in self.requests if r.source_mss == mss_id and r.status == "PENDING"]
-        return sorted(pending, key=lambda r: (-r.priority, r.timestamp))
+    def _get_global_highest_priority(self):
+        """Find the globally highest priority pending request."""
+        pending = [r for r in self.requests if r.status == "PENDING"]
+        if not pending:
+            return None
+        return max(pending, key=lambda r: (r.priority, -r.timestamp))
 
     def _build_frame(self, token_color='#FFF', mss_colors=None, mh_colors=None, bar_data=None, log_text=""):
         g = self.g
@@ -628,12 +604,10 @@ class GrantingAnimator:
         mss_colors = mss_colors or {}
         mh_colors = mh_colors or {}
         
-        # Ring
         ra = np.linspace(0, 2 * np.pi, 100)
         data.append(go.Scatter(x=g.R*1.08*np.cos(ra), y=g.R*1.08*np.sin(ra),
                                mode='lines', line=dict(color='#555', width=2), hoverinfo='none'))
         
-        # MSS
         mss_cols = [mss_colors.get(i, '#00D4FF') for i in range(g.n)]
         mss_sizes = [55 if i in mss_colors else 48 for i in range(g.n)]
         data.append(go.Scatter(x=g.sx, y=g.sy, mode='markers+text',
@@ -641,7 +615,6 @@ class GrantingAnimator:
                                text=[f'MSS_{i}' for i in range(g.n)], textposition='top center',
                                textfont=dict(size=11, color='white', family='Arial Black'), hoverinfo='none'))
         
-        # MH
         mh_x, mh_y, mh_cols, mh_sizes = [], [], [], []
         for s in range(g.n):
             for j in range(3):
@@ -653,14 +626,12 @@ class GrantingAnimator:
         data.append(go.Scatter(x=mh_x, y=mh_y, mode='markers',
                                marker=dict(size=mh_sizes, color=mh_cols, line=dict(width=2, color='white')), hoverinfo='none'))
         
-        # Token
         token_angle = ((self.token_pos % g.n) / g.n) * 2 * math.pi - math.pi / 2
         tx, ty = g.R * math.cos(token_angle), g.R * math.sin(token_angle)
         data.append(go.Scatter(x=[tx], y=[ty], mode='markers+text',
                                marker=dict(size=38, color=token_color, symbol='circle', line=dict(width=4, color='#333')),
                                text=['🔑'], textfont=dict(size=16), hoverinfo='none'))
         
-        # Priority bars
         if bar_data:
             bar_y = 2.5
             bar_x_start = 3.8
@@ -683,117 +654,150 @@ class GrantingAnimator:
             for _ in range(16):
                 data.append(go.Scatter(x=[None], y=[None], mode='lines', hoverinfo='none'))
         
-        # Log
         data.append(go.Scatter(x=[0], y=[-3.2], mode='text', text=[f'<b>{log_text}</b>'],
                                textfont=dict(size=13, color='white'), hoverinfo='none'))
         return data
 
-    def _get_bar_data(self, current_mss):
+    def _get_bar_data(self, next_grant_req=None):
+        """Get bar chart data sorted by priority, with next_grant_req highlighted."""
         all_reqs = sorted(self.requests, key=lambda r: (-r.priority, r.timestamp))
-        local_pending = self._get_pending_at_mss(current_mss)
-        next_grant = local_pending[0] if local_pending else None
-        return [(r.mh_id, r.priority, r.status, r is next_grant) for r in all_reqs]
+        return [(r.mh_id, r.priority, r.status, r is next_grant_req) for r in all_reqs]
 
     def build(self):
         g = self.g
-        mss_with_pending = set(r.source_mss for r in self.requests if r.status == "PENDING")
-        max_mss = max(mss_with_pending) if mss_with_pending else g.n - 1
         
         self.logs.append("═══════════════════════════════════════════════════════")
-        self.logs.append("        PRIORITY-BASED GRANTING - DETAILED LOG         ")
+        self.logs.append("   PRIORITY-BASED GRANTING - GLOBAL PRIORITY FIXED    ")
         self.logs.append("═══════════════════════════════════════════════════════")
         self.logs.append("")
-        self.logs.append("Initial pending requests (sorted by priority):")
+        self.logs.append("Initial pending requests (sorted by GLOBAL priority):")
         for r in sorted(self.requests, key=lambda x: (-x.priority, x.timestamp)):
             self.logs.append(f"  • {r.mh_id} at MSS_{r.source_mss}: Priority={r.priority}, T={r.timestamp}")
         self.logs.append("")
-        self.logs.append("Token begins circulation from MSS_0")
+        self.logs.append("KEY PRINCIPLE: Token moves to MSS with HIGHEST GLOBAL PRIORITY request")
+        self.logs.append("Token begins at MSS_0")
         self.logs.append("")
         
         granted_count = 0
+        iteration = 0
         
-        for target_mss in range(max_mss + 2):
-            actual_mss = target_mss % g.n
-            start_pos = self.token_pos
-            end_pos = target_mss
+        while True:
+            # Find globally highest priority pending request
+            next_req = self._get_global_highest_priority()
+            if not next_req:
+                break
             
-            self.logs.append(f"━━━ TOKEN → MSS_{actual_mss} ━━━")
+            iteration += 1
+            target_mss = next_req.source_mss
             
-            for step in range(self.MOVE_STEPS):
-                t = (step + 1) / self.MOVE_STEPS
-                self.token_pos = lerp(start_pos, end_pos, t)
-                bar_data = self._get_bar_data(actual_mss)
-                self.frames.append(self._build_frame(
-                    token_color='#FFF', mss_colors={actual_mss: '#87CEEB'} if step > self.MOVE_STEPS // 2 else {},
-                    bar_data=bar_data, log_text=f"⚪ Token → MSS_{actual_mss}..."))
+            self.logs.append(f"━━━ ITERATION {iteration} ━━━")
+            self.logs.append(f"  GLOBAL SCAN: Checking all pending requests...")
             
-            local_pending = self._get_pending_at_mss(actual_mss)
+            pending_by_priority = sorted([r for r in self.requests if r.status == "PENDING"],
+                                        key=lambda r: (-r.priority, r.timestamp))
+            for idx, r in enumerate(pending_by_priority[:3]):
+                marker = "← HIGHEST (WINNER!)" if r is next_req else ""
+                self.logs.append(f"    #{idx+1}: {r.mh_id} at MSS_{r.source_mss} P={r.priority} T={r.timestamp} {marker}")
             
-            if local_pending:
-                grantee = local_pending[0]
-                self.logs.append(f"  Local pending: {len(local_pending)} request(s)")
-                for r in local_pending:
-                    marker = "→ WINNER" if r is grantee else ""
-                    self.logs.append(f"    • {r.mh_id}: P={r.priority}, T={r.timestamp} {marker}")
-                self.logs.append(f"  Decision: Grant to {grantee.mh_id} (highest priority={grantee.priority})")
-                
-                bar_data = self._get_bar_data(actual_mss)
-                for _ in range(self.HOLD_STEPS):
-                    self.frames.append(self._build_frame(
-                        token_color='#FFD700', mss_colors={actual_mss: '#FFD700'},
-                        mh_colors={grantee.mh_id: '#FF5722'}, bar_data=bar_data,
-                        log_text=f"🔍 MSS_{actual_mss}: {len(local_pending)} pending"))
-                
-                for _ in range(self.GRANT_STEPS):
-                    self.frames.append(self._build_frame(
-                        token_color='#00FF00', mss_colors={actual_mss: '#00FF00'},
-                        mh_colors={grantee.mh_id: '#9C27B0'}, bar_data=bar_data,
-                        log_text=f"🏆 GRANTED → {grantee.mh_id} (P={grantee.priority})"))
-                
-                grantee.status = "GRANTED"
-                granted_count += 1
-                self.logs.append(f"  ✓ {grantee.mh_id} enters CRITICAL SECTION")
-                
-                bar_data = self._get_bar_data(actual_mss)
-                for _ in range(self.GRANT_STEPS):
-                    self.frames.append(self._build_frame(
-                        token_color='#00FF00', mss_colors={actual_mss: '#00FF00'},
-                        mh_colors={grantee.mh_id: '#9C27B0'}, bar_data=bar_data,
-                        log_text=f"🟣 {grantee.mh_id} in CS"))
-                
-                grantee.status = "COMPLETED"
-                self.logs.append(f"  ✓ {grantee.mh_id} exits CS, token released")
-                
-                bar_data = self._get_bar_data(actual_mss)
-                for _ in range(self.HOLD_STEPS):
-                    self.frames.append(self._build_frame(
-                        token_color='#FFF', mss_colors={actual_mss: '#00CC00'}, bar_data=bar_data,
-                        log_text=f"✅ {grantee.mh_id} done"))
-            else:
-                self.logs.append(f"  No local pending requests → pass token")
-                bar_data = self._get_bar_data(actual_mss)
-                for _ in range(self.HOLD_STEPS):
-                    self.frames.append(self._build_frame(
-                        token_color='#FFF', mss_colors={actual_mss: '#87CEEB'}, bar_data=bar_data,
-                        log_text=f"🔍 MSS_{actual_mss}: No local pending"))
+            if len(pending_by_priority) > 3:
+                self.logs.append(f"    ... and {len(pending_by_priority)-3} more")
             
+            self.logs.append(f"  Decision: Token must go to MSS_{target_mss} (has {next_req.mh_id} P={next_req.priority})")
             self.logs.append("")
             
+            # Calculate shortest path to target
+            current_mss = int(self.token_pos) % g.n
+            forward_dist = (target_mss - current_mss) % g.n
+            
+            if forward_dist == 0:
+                self.logs.append(f"  Token already at MSS_{target_mss}!")
+            else:
+                self.logs.append(f"  Token path: MSS_{current_mss} → MSS_{target_mss} (distance: {forward_dist} hops)")
+            
+            # Move token to target MSS
+            if forward_dist > 0:
+                start_pos = self.token_pos
+                end_pos = self.token_pos + forward_dist
+                
+                for step in range(self.MOVE_STEPS):
+                    t = (step + 1) / self.MOVE_STEPS
+                    self.token_pos = lerp(start_pos, end_pos, t)
+                    bar_data = self._get_bar_data(next_req)
+                    actual_mss = int(self.token_pos) % g.n
+                    self.frames.append(self._build_frame(
+                        token_color='#FFF',
+                        mss_colors={target_mss: '#FFD700'} if step > self.MOVE_STEPS // 2 else {},
+                        bar_data=bar_data,
+                        log_text=f"⚪ Token moving to MSS_{target_mss} (global highest priority)..."))
+            
+            # Grant to this request
+            self.logs.append(f"  ✓ Token arrives at MSS_{target_mss}")
+            self.logs.append(f"  ✓ Granting to {next_req.mh_id} (GLOBAL highest priority={next_req.priority})")
+            
+            bar_data = self._get_bar_data(next_req)
+            for _ in range(self.HOLD_STEPS):
+                self.frames.append(self._build_frame(
+                    token_color='#FFD700',
+                    mss_colors={target_mss: '#FFD700'},
+                    mh_colors={next_req.mh_id: '#FF5722'},
+                    bar_data=bar_data,
+                    log_text=f"🔍 MSS_{target_mss}: Checking request from {next_req.mh_id}"))
+            
+            for _ in range(self.GRANT_STEPS):
+                self.frames.append(self._build_frame(
+                    token_color='#00FF00',
+                    mss_colors={target_mss: '#00FF00'},
+                    mh_colors={next_req.mh_id: '#9C27B0'},
+                    bar_data=bar_data,
+                    log_text=f"🏆 GRANTED to {next_req.mh_id} (P={next_req.priority})"))
+            
+            next_req.status = "GRANTED"
+            granted_count += 1
+            
+            bar_data = self._get_bar_data(None)
+            for _ in range(self.GRANT_STEPS):
+                self.frames.append(self._build_frame(
+                    token_color='#00FF00',
+                    mss_colors={target_mss: '#00FF00'},
+                    mh_colors={next_req.mh_id: '#9C27B0'},
+                    bar_data=bar_data,
+                    log_text=f"🟣 {next_req.mh_id} in CRITICAL SECTION"))
+            
+            next_req.status = "COMPLETED"
+            self.logs.append(f"  ✓ {next_req.mh_id} exits CS")
+            
+            bar_data = self._get_bar_data(None)
+            for _ in range(self.HOLD_STEPS):
+                self.frames.append(self._build_frame(
+                    token_color='#FFF',
+                    mss_colors={target_mss: '#00CC00'},
+                    bar_data=bar_data,
+                    log_text=f"✅ {next_req.mh_id} completed"))
+            
             remaining = sum(1 for r in self.requests if r.status == "PENDING")
-            if remaining == 0:
-                break
+            self.logs.append(f"  Remaining: {remaining} pending request(s)")
+            self.logs.append("")
         
         self.logs.append("═══════════════════════════════════════════════════════")
         self.logs.append(f"  COMPLETE: {granted_count}/{len(self.requests)} requests granted")
+        self.logs.append(f"  SERVING ORDER (by GLOBAL priority):")
+        
+        completed = [r for r in self.requests if r.status == "COMPLETED"]
+        for idx, r in enumerate(sorted(completed, key=lambda x: (-x.priority, x.timestamp)), 1):
+            self.logs.append(f"    {idx}. {r.mh_id} at MSS_{r.source_mss} (P={r.priority}, T={r.timestamp})")
+        
         self.logs.append("═══════════════════════════════════════════════════════")
         
         for _ in range(self.HOLD_STEPS * 2):
-            self.frames.append(self._build_frame(token_color='#FFF', bar_data=self._get_bar_data(0),
-                               log_text=f"✅ All {len(self.requests)} requests served!"))
+            self.frames.append(self._build_frame(
+                token_color='#FFF',
+                bar_data=self._get_bar_data(None),
+                log_text=f"✅ All {len(self.requests)} requests served!"))
         
         plotly_frames = [go.Frame(data=f, name=str(i)) for i, f in enumerate(self.frames)]
         layout = go.Layout(
-            title=dict(text='<b>Priority-Based Granting Animation</b>', font=dict(size=16, color='white'), x=0.5),
+            title=dict(text='<b>Priority-Based Granting (GLOBAL PRIORITY)</b>',
+                       font=dict(size=16, color='white'), x=0.5),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-3.5, 6]),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-3.6, 3.3], scaleanchor='x'),
             height=650, plot_bgcolor='#1a1a2e', paper_bgcolor='#1a1a2e',
@@ -819,7 +823,7 @@ class GrantingAnimator:
 # ═══════════════════════════════════════════════════════════════
 
 class QueueAnimator:
-    """Animates queue state transitions at each MSS."""
+    """Animates queue state transitions at each MSS (uses GLOBAL priority)."""
     
     def __init__(self, g: Geom, requests: List[Request]):
         self.g = g
@@ -830,6 +834,12 @@ class QueueAnimator:
         self.MOVE_STEPS = 8
         self.PROCESS_STEPS = 15
 
+    def _get_global_highest_priority(self):
+        pending = [r for r in self.requests if r.status == "PENDING"]
+        if not pending:
+            return None
+        return max(pending, key=lambda r: (r.priority, -r.timestamp))
+
     def _build_frame(self, token_color='#FFF', mss_colors=None, queue_states=None, log_text=""):
         g = self.g
         data = []
@@ -838,12 +848,10 @@ class QueueAnimator:
         
         r_small = g.R * 0.85
         
-        # Ring
         ra = np.linspace(0, 2 * np.pi, 100)
         data.append(go.Scatter(x=r_small*1.08*np.cos(ra), y=r_small*1.08*np.sin(ra),
                                mode='lines', line=dict(color='#555', width=2), hoverinfo='none'))
         
-        # MSS
         sx = [r_small * math.cos(a) for a in g.ang]
         sy = [r_small * math.sin(a) for a in g.ang]
         mss_cols = [mss_colors.get(i, '#00D4FF') for i in range(g.n)]
@@ -852,14 +860,12 @@ class QueueAnimator:
                                text=[f'MSS_{i}' for i in range(g.n)], textposition='middle center',
                                textfont=dict(size=10, color='white', family='Arial Black'), hoverinfo='none'))
         
-        # Token
         token_angle = ((self.token_pos % g.n) / g.n) * 2 * math.pi - math.pi / 2
         tx, ty = r_small * math.cos(token_angle), r_small * math.sin(token_angle)
         data.append(go.Scatter(x=[tx], y=[ty], mode='markers+text',
                                marker=dict(size=30, color=token_color, symbol='circle', line=dict(width=3, color='#333')),
                                text=['🔑'], textfont=dict(size=12), hoverinfo='none'))
         
-        # Queue displays
         for mss_id in range(min(g.n, 6)):
             angle = g.ang[mss_id]
             qx = g.R * 1.6 * math.cos(angle)
@@ -902,7 +908,7 @@ class QueueAnimator:
         g = self.g
         
         self.logs.append("═══════════════════════════════════════════════════════")
-        self.logs.append("           QUEUE STATES - DETAILED LOG                 ")
+        self.logs.append("      QUEUE STATES - GLOBAL PRIORITY ORDERING          ")
         self.logs.append("═══════════════════════════════════════════════════════")
         self.logs.append("")
         self.logs.append("INITIAL QUEUE STATES:")
@@ -921,52 +927,56 @@ class QueueAnimator:
             self.frames.append(self._build_frame(queue_states=qs,
                                log_text=f"📋 Initial: {len(self.requests)} pending"))
         
-        mss_with_pending = set(r.source_mss for r in self.requests)
-        max_mss = max(mss_with_pending) if mss_with_pending else g.n - 1
-        
-        for target_mss in range(max_mss + 2):
-            actual_mss = target_mss % g.n
-            start_pos = self.token_pos
+        iteration = 0
+        while True:
+            next_req = self._get_global_highest_priority()
+            if not next_req:
+                break
             
-            self.logs.append(f"━━━ TOKEN → MSS_{actual_mss} ━━━")
+            iteration += 1
+            target_mss = next_req.source_mss
             
-            for step in range(self.MOVE_STEPS):
-                t = (step + 1) / self.MOVE_STEPS
-                self.token_pos = lerp(start_pos, target_mss, t)
-                qs = self._get_queue_states()
-                self.frames.append(self._build_frame(mss_colors={actual_mss: '#87CEEB'},
-                                   queue_states=qs, log_text=f"⚪ Token → MSS_{actual_mss}"))
+            self.logs.append(f"━━━ ITERATION {iteration}: Token → MSS_{target_mss} ━━━")
+            self.logs.append(f"  Global highest: {next_req.mh_id} (P={next_req.priority})")
+            
+            current_mss = int(self.token_pos) % g.n
+            forward_dist = (target_mss - current_mss) % g.n
+            
+            if forward_dist > 0:
+                start_pos = self.token_pos
+                for step in range(self.MOVE_STEPS):
+                    t = (step + 1) / self.MOVE_STEPS
+                    self.token_pos = lerp(start_pos, start_pos + forward_dist, t)
+                    qs = self._get_queue_states()
+                    self.frames.append(self._build_frame(
+                        mss_colors={target_mss: '#87CEEB'},
+                        queue_states=qs,
+                        log_text=f"⚪ Token → MSS_{target_mss}"))
             
             qs = self._get_queue_states()
-            pending = qs[actual_mss]['pending']
+            self.logs.append(f"  Queue before: {len(qs[target_mss]['pending'])} pending")
             
-            if pending:
-                grantee = pending[0]
-                self.logs.append(f"  Queue before: {len(pending)} pending")
-                self.logs.append(f"  Granting to: {grantee.mh_id} (P={grantee.priority})")
-                
-                grantee.status = "GRANTED"
-                qs = self._get_queue_states()
-                for _ in range(self.PROCESS_STEPS):
-                    self.frames.append(self._build_frame(token_color='#00FF00', mss_colors={actual_mss: '#00FF00'},
-                                       queue_states=qs, log_text=f"🟢 Granted: {grantee.mh_id}"))
-                
-                grantee.status = "COMPLETED"
-                qs = self._get_queue_states()
-                self.logs.append(f"  Queue after: {len(qs[actual_mss]['pending'])} pending, {len(qs[actual_mss]['completed'])} done")
-                
-                for _ in range(self.PROCESS_STEPS):
-                    self.frames.append(self._build_frame(token_color='#FFF', mss_colors={actual_mss: '#888'},
-                                       queue_states=qs, log_text=f"✅ {grantee.mh_id} completed"))
-            else:
-                self.logs.append(f"  Queue empty → pass")
-                for _ in range(self.MOVE_STEPS):
-                    self.frames.append(self._build_frame(mss_colors={actual_mss: '#555'},
-                                       queue_states=qs, log_text=f"MSS_{actual_mss}: empty"))
+            next_req.status = "GRANTED"
+            qs = self._get_queue_states()
+            for _ in range(self.PROCESS_STEPS):
+                self.frames.append(self._build_frame(
+                    token_color='#00FF00',
+                    mss_colors={target_mss: '#00FF00'},
+                    queue_states=qs,
+                    log_text=f"🟢 Granted: {next_req.mh_id}"))
+            
+            next_req.status = "COMPLETED"
+            qs = self._get_queue_states()
+            self.logs.append(f"  Queue after: {len(qs[target_mss]['pending'])} pending, {len(qs[target_mss]['completed'])} done")
+            
+            for _ in range(self.PROCESS_STEPS):
+                self.frames.append(self._build_frame(
+                    token_color='#FFF',
+                    mss_colors={target_mss: '#888'},
+                    queue_states=qs,
+                    log_text=f"✅ {next_req.mh_id} completed"))
             
             self.logs.append("")
-            remaining = sum(1 for r in self.requests if r.status == "PENDING")
-            if remaining == 0: break
         
         self.logs.append("═══════════════════════════════════════════════════════")
         self.logs.append("FINAL QUEUE STATES:")
@@ -977,12 +987,14 @@ class QueueAnimator:
         self.logs.append("═══════════════════════════════════════════════════════")
         
         for _ in range(self.PROCESS_STEPS * 2):
-            self.frames.append(self._build_frame(queue_states=qs,
-                               log_text=f"✅ All queues cleared!"))
+            self.frames.append(self._build_frame(
+                queue_states=qs,
+                log_text=f"✅ All queues cleared!"))
         
         plotly_frames = [go.Frame(data=f, name=str(i)) for i, f in enumerate(self.frames)]
         layout = go.Layout(
-            title=dict(text='<b>Queue States Animation</b>', font=dict(size=16, color='white'), x=0.5),
+            title=dict(text='<b>Queue States (GLOBAL Priority)</b>',
+                       font=dict(size=16, color='white'), x=0.5),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-4.5, 4.5]),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-3.5, 3.5], scaleanchor='x'),
             height=650, plot_bgcolor='#1a1a2e', paper_bgcolor='#1a1a2e',
@@ -1017,12 +1029,8 @@ background:linear-gradient(90deg,#e3f2fd,#bbdefb);border-radius:10px;margin-bott
 .log-box{background:#1e1e1e;color:#00ff00;font-family:monospace;font-size:12px;
 padding:1rem;border-radius:8px;max-height:400px;overflow-y:auto;white-space:pre-wrap}
 </style>
-<div class="hdr">🔐 Token-Ring Mutual Exclusion — Replication Scheme</div>
+<div class="hdr">🔐 Token-Ring Mutual Exclusion — GLOBAL PRIORITY</div>
 """, unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════
-#                          TABS
-# ══════════════════════════════════════════════════════════════
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     '🔄 1. Token Ring',
@@ -1031,10 +1039,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     '📋 4. Request Logs',
     '📊 5. Queue States'
 ])
-
-# ══════════════════════════════════════════════════════════════
-#                   TAB 1: ORIGINAL TOKEN RING
-# ══════════════════════════════════════════════════════════════
 
 with tab1:
     st.markdown('### 🔄 Token Ring Animation — Full Scenario')
@@ -1071,10 +1075,6 @@ with tab1:
         st.markdown('#### 📖 Detailed Phase Log')
         log_text = "\n".join(logs)
         st.markdown(f'<div class="log-box">{log_text}</div>', unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════
-#                    TAB 2: BROADCASTING
-# ══════════════════════════════════════════════════════════════
 
 with tab2:
     st.markdown('### 📡 Request Broadcasting Animation')
@@ -1114,18 +1114,14 @@ with tab2:
         log_text = "\n".join(logs)
         st.markdown(f'<div class="log-box">{log_text}</div>', unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════
-#                 TAB 3: PRIORITY GRANTING
-# ══════════════════════════════════════════════════════════════
-
 with tab3:
-    st.markdown('### 🏆 Priority-Based Granting Animation')
-    st.info('''
-    **Token circulates and grants to highest priority:**
-    1. Random requests with random priorities (1-10)
-    2. Token visits each MSS in order
-    3. At each MSS: grant to LOCAL request with highest priority
-    4. Bar chart shows priority queue (green = next grant)
+    st.markdown('### 🏆 Priority-Based Granting Animation (GLOBAL PRIORITY FIXED)')
+    st.success('''
+    **✅ GLOBAL PRIORITY IMPLEMENTATION:**
+    1. System scans ALL pending requests across ALL MSSs
+    2. Token moves to MSS with **GLOBALLY HIGHEST PRIORITY** request
+    3. Grants that request, then repeats
+    4. Result: Requests served in strict priority order (10→5→2→1)
     ''')
     
     col1, col2, col3 = st.columns(3)
@@ -1144,7 +1140,7 @@ with tab3:
             st.session_state.t3_anim = (d0, frames, layout, logs, final)
     
     if 't3_anim' in st.session_state:
-        st.markdown('#### 🎲 Generated Requests (sorted by priority)')
+        st.markdown('#### 🎲 Generated Requests (sorted by GLOBAL priority)')
         reqs_sorted = sorted(st.session_state.t3_requests, key=lambda r: (-r.priority, r.timestamp))
         req_df = pd.DataFrame([r.row() for r in reqs_sorted])
         st.dataframe(req_df, use_container_width=True, hide_index=True)
@@ -1157,10 +1153,6 @@ with tab3:
         st.markdown('#### 📖 Detailed Granting Log')
         log_text = "\n".join(logs)
         st.markdown(f'<div class="log-box">{log_text}</div>', unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════
-#                    TAB 4: REQUEST LOGS
-# ══════════════════════════════════════════════════════════════
 
 with tab4:
     st.markdown('### 📋 Replicated Request Logs at Each MSS')
@@ -1225,16 +1217,12 @@ with tab4:
             })
         st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
 
-# ══════════════════════════════════════════════════════════════
-#                   TAB 5: QUEUE STATES
-# ══════════════════════════════════════════════════════════════
-
 with tab5:
-    st.markdown('### 📊 Queue States Animation')
+    st.markdown('### 📊 Queue States Animation (GLOBAL PRIORITY)')
     st.info('''
-    **Visualize queue transitions:**
-    - Pending → Granted → Completed
-    - Watch queues drain as token circulates
+    **Visualize queue transitions with GLOBAL priority:**
+    - Token moves to MSS with highest priority request
+    - Watch queues drain in priority order
     ''')
     
     col1, col2, col3 = st.columns(3)
@@ -1266,6 +1254,5 @@ with tab5:
         log_text = "\n".join(logs)
         st.markdown(f'<div class="log-box">{log_text}</div>', unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════
 st.markdown('---')
-st.caption('Token-Ring Mutual Exclusion with Replication | Automated Random Scenarios')
+st.caption('Token-Ring Mutual Exclusion with GLOBAL PRIORITY | All requests served in strict priority order')
