@@ -246,84 +246,143 @@ def draw_ring(mss_list: List[MSS]) -> go.Figure:
     xs = [radius * math.cos(a) for a in angles]
     ys = [radius * math.sin(a) for a in angles]
 
-    # ── arrows (edges) ──
-    arrow_annotations = []
+    fig = go.Figure()
+
+    # ── edge lines (ring connections) ──
     for i in range(n):
         x0, y0 = xs[i], ys[i]
         x1, y1 = xs[(i + 1) % n], ys[(i + 1) % n]
-        # shorten so arrow doesn't overlap node
+
+        # shorten line so it does not overlap nodes
         dx, dy = x1 - x0, y1 - y0
         length = math.hypot(dx, dy)
-        shrink = 0.22
-        ax0 = x0 + dx * shrink
-        ay0 = y0 + dy * shrink
-        ax1 = x1 - dx * shrink
-        ay1 = y1 - dy * shrink
-        arrow_annotations.append(
-            dict(
-                ax=ax0, ay=ay0, x=ax1, y=ay1,
-                xref="x", yref="y", axref="x", ayref="y",
-                showarrow=True,
-                arrowhead=3, arrowsize=1.5, arrowwidth=2,
-                arrowcolor="#555",
-            )
-        )
+        if length > 0:
+            shrink = 0.25
+            lx0 = x0 + dx * shrink
+            ly0 = y0 + dy * shrink
+            lx1 = x1 - dx * shrink
+            ly1 = y1 - dy * shrink
+        else:
+            lx0, ly0, lx1, ly1 = x0, y0, x1, y1
 
-    # ── nodes ──
+        # line
+        fig.add_trace(go.Scatter(
+            x=[lx0, lx1], y=[ly0, ly1],
+            mode="lines",
+            line=dict(width=2, color="#555"),
+            hoverinfo="none",
+            showlegend=False,
+        ))
+
+        # arrowhead triangle
+        arrow_size = 0.12
+        adx = lx1 - lx0
+        ady = ly1 - ly0
+        al = math.hypot(adx, ady)
+        if al > 0:
+            udx, udy = adx / al, ady / al
+            px, py = -udy, udx  # perpendicular
+            tip_x = lx1
+            tip_y = ly1
+            base_x1 = tip_x - udx * arrow_size + px * arrow_size * 0.4
+            base_y1 = tip_y - udy * arrow_size + py * arrow_size * 0.4
+            base_x2 = tip_x - udx * arrow_size - px * arrow_size * 0.4
+            base_y2 = tip_y - udy * arrow_size - py * arrow_size * 0.4
+            fig.add_trace(go.Scatter(
+                x=[tip_x, base_x1, base_x2, tip_x],
+                y=[tip_y, base_y1, base_y2, tip_y],
+                fill="toself",
+                fillcolor="#555",
+                line=dict(width=0),
+                hoverinfo="none",
+                showlegend=False,
+            ))
+
+    # ── MSS nodes ──
     colors = ["gold" if m.has_token else "#64b5f6" for m in mss_list]
     sizes = [55 if m.has_token else 42 for m in mss_list]
-    symbols = []
-    hovers = []
     labels = []
+    hovers = []
     for m in mss_list:
         tok = " 🔑" if m.has_token else ""
         labels.append(f"MSS_{m.id}{tok}")
-        mh_names = ", ".join(f"{mh.id}(P{mh.base_priority})" for mh in m.mobile_hosts) or "—"
+        mh_names = (
+            ", ".join(f"{mh.id}(P{mh.base_priority})" for mh in m.mobile_hosts)
+            or "—"
+        )
         hovers.append(
             f"<b>MSS_{m.id}</b>{tok}<br>"
             f"MHs: {mh_names}<br>"
             f"Local pending: {len(m.local_queue)}"
         )
 
-    node_trace = go.Scatter(
-        x=xs, y=ys, mode="markers+text",
-        text=labels, textposition="top center",
+    fig.add_trace(go.Scatter(
+        x=xs,
+        y=ys,
+        mode="markers+text",
+        text=labels,
+        textposition="top center",
         textfont=dict(size=13, color="black"),
-        hovertext=hovers, hoverinfo="text",
-        marker=dict(size=sizes, color=colors,
-                    line=dict(width=2, color="black")),
+        hovertext=hovers,
+        hoverinfo="text",
+        marker=dict(
+            size=sizes,
+            color=colors,
+            line=dict(width=2, color="black"),
+        ),
         showlegend=False,
-    )
+    ))
 
     # ── MH labels around each MSS ──
-    mh_annotations = []
     for idx, m in enumerate(mss_list):
         for j, mh in enumerate(m.mobile_hosts):
             offset_angle = angles[idx] + math.pi + (j - len(m.mobile_hosts) / 2) * 0.35
-            mx = xs[idx] + 0.55 * math.cos(offset_angle)
-            my = ys[idx] + 0.55 * math.sin(offset_angle)
-            mh_annotations.append(
-                dict(
-                    x=mx, y=my, text=f"📱{mh.id}<br>P={mh.base_priority}",
-                    showarrow=True, arrowhead=0, arrowwidth=1,
-                    arrowcolor="#aaa", ax=xs[idx], ay=ys[idx],
-                    font=dict(size=10, color="#333"),
-                    bgcolor="#e8f5e9", borderpad=2,
-                    xref="x", yref="y", axref="x", ayref="y",
-                )
-            )
+            mx = xs[idx] + 0.6 * math.cos(offset_angle)
+            my = ys[idx] + 0.6 * math.sin(offset_angle)
 
-    fig = go.Figure(data=[node_trace])
+            # line from MSS to MH label
+            fig.add_trace(go.Scatter(
+                x=[xs[idx], mx],
+                y=[ys[idx], my],
+                mode="lines",
+                line=dict(width=1, color="#aaa", dash="dot"),
+                hoverinfo="none",
+                showlegend=False,
+            ))
+
+            # MH label marker
+            fig.add_trace(go.Scatter(
+                x=[mx],
+                y=[my],
+                mode="markers+text",
+                text=[f"📱{mh.id} P={mh.base_priority}"],
+                textposition="bottom center",
+                textfont=dict(size=9, color="#333"),
+                marker=dict(size=12, color="#e8f5e9",
+                            line=dict(width=1, color="#66bb6a")),
+                hoverinfo="text",
+                hovertext=f"{mh.id} | Priority={mh.base_priority} | MSS_{m.id}",
+                showlegend=False,
+            ))
+
     fig.update_layout(
-        title="<b>Logical Ring of Mobile Support Stations (MSSs)</b>",
-        titlefont_size=18,
-        annotations=arrow_annotations + mh_annotations,
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-3.5, 3.5]),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   scaleanchor="x", range=[-3.5, 3.5]),
-        height=600, plot_bgcolor="white", paper_bgcolor="white",
+        title=dict(text="<b>Logical Ring of Mobile Support Stations (MSSs)</b>",
+                   font=dict(size=18)),
+        xaxis=dict(
+            showgrid=False, zeroline=False, showticklabels=False,
+            range=[-3.5, 3.5],
+        ),
+        yaxis=dict(
+            showgrid=False, zeroline=False, showticklabels=False,
+            range=[-3.5, 3.5],
+            scaleanchor="x",
+        ),
+        height=600,
+        plot_bgcolor="white",
+        paper_bgcolor="white",
         margin=dict(l=20, r=20, t=50, b=20),
     )
+
     return fig
 
 
@@ -335,7 +394,6 @@ def build_default_scenario():
     ring = RingTopology(4)
     mhs = []
     config = [
-        # (mss_id, mh_id, priority)
         (0, "MH_A", 5),
         (0, "MH_B", 3),
         (1, "MH_C", 8),
@@ -402,8 +460,13 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📤 Send Request")
-    opts = [f"{mh.id}  (at MSS_{mh.current_mss.id}, P={mh.base_priority})" for mh in mhs]
-    sel = st.selectbox("Select Mobile Host", range(len(mhs)), format_func=lambda i: opts[i])
+    opts = [
+        f"{mh.id}  (at MSS_{mh.current_mss.id}, P={mh.base_priority})"
+        for mh in mhs
+    ]
+    sel = st.selectbox(
+        "Select Mobile Host", range(len(mhs)), format_func=lambda i: opts[i]
+    )
     if st.button("Send Request", use_container_width=True):
         req = mhs[sel].request_cs()
         if req:
@@ -433,12 +496,14 @@ with st.sidebar:
     granted_list = [r for r in st.session_state.reqs_made if r.status == "GRANTED"]
     if granted_list:
         g_opts = [f"{r.mh_id} ({r.request_id})" for r in granted_list]
-        g_sel = st.selectbox("Select granted request", range(len(granted_list)),
-                             format_func=lambda i: g_opts[i])
+        g_sel = st.selectbox(
+            "Select granted request",
+            range(len(granted_list)),
+            format_func=lambda i: g_opts[i],
+        )
         if st.button("Mark Completed", use_container_width=True):
             chosen = granted_list[g_sel]
             tm.complete(chosen)
-            # find the MH and exit CS
             for mh in mhs:
                 if mh.id == chosen.mh_id:
                     mh.exit_cs()
@@ -456,12 +521,14 @@ with st.sidebar:
 #                           TABS
 # ═══════════════════════════════════════════════════════════════
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🔗 1. Ring Topology",
-    "📡 2. Request Propagation & Granting",
-    "📋 3. Request Logs & Priorities",
-    "📊 4. Queues After Service",
-])
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "🔗 1. Ring Topology",
+        "📡 2. Request Propagation & Granting",
+        "📋 3. Request Logs & Priorities",
+        "📊 4. Queues After Service",
+    ]
+)
 
 # ────────── TAB 1: RING TOPOLOGY ──────────
 with tab1:
@@ -480,12 +547,14 @@ with tab1:
     assign_data = []
     for mss in ring.nodes:
         for mh in mss.mobile_hosts:
-            assign_data.append({
-                "Mobile Host": mh.id,
-                "Connected to": f"MSS_{mss.id}",
-                "Priority": mh.base_priority,
-                "In CS?": "✅ Yes" if mh.in_cs else "No",
-            })
+            assign_data.append(
+                {
+                    "Mobile Host": mh.id,
+                    "Connected to": f"MSS_{mss.id}",
+                    "Priority": mh.base_priority,
+                    "In CS?": "✅ Yes" if mh.in_cs else "No",
+                }
+            )
     st.dataframe(pd.DataFrame(assign_data), use_container_width=True, hide_index=True)
 
 # ────────── TAB 2: REQUEST PROPAGATION & GRANTING ──────────
@@ -502,12 +571,21 @@ with tab2:
     st.markdown("#### Broadcast Trace for Each Request")
     if st.session_state.reqs_made:
         for req in st.session_state.reqs_made:
-            other_mss = [f"MSS_{m.id}" for m in ring.nodes if m.id != req.source_mss_id]
-            with st.expander(f"📨 {req.request_id}  |  {req.mh_id} → MSS_{req.source_mss_id}  |  P={req.priority}  |  {req.status}"):
+            other_mss = [
+                f"MSS_{m.id}" for m in ring.nodes if m.id != req.source_mss_id
+            ]
+            with st.expander(
+                f"📨 {req.request_id}  |  {req.mh_id} → MSS_{req.source_mss_id}"
+                f"  |  P={req.priority}  |  {req.status}"
+            ):
                 st.write(f"**Origin:** {req.mh_id} at **MSS_{req.source_mss_id}**")
-                st.write(f"**Priority:** {req.priority}  |  **Lamport Time:** {req.timestamp}")
+                st.write(
+                    f"**Priority:** {req.priority}  |  **Lamport Time:** {req.timestamp}"
+                )
                 st.write(f"**Broadcast to:** {', '.join(other_mss)}")
-                st.write(f"**Messages generated:** {len(other_mss)} (O(N−1) = {ring.n - 1})")
+                st.write(
+                    f"**Messages generated:** {len(other_mss)} (O(N−1) = {ring.n - 1})"
+                )
                 st.write(f"**Current status:** `{req.status}`")
     else:
         st.warning("No requests yet. Use the sidebar to send requests.")
@@ -519,17 +597,21 @@ with tab2:
         gq = []
         for rank, r in enumerate(holder.global_queue, 1):
             is_local = "✅" if r.source_mss_id == holder.id else ""
-            gq.append({
-                "Rank": rank,
-                "MH": r.mh_id,
-                "Source MSS": f"MSS_{r.source_mss_id}",
-                "Priority": r.priority,
-                "Lamport T": r.timestamp,
-                "Local?": is_local,
-                "Status": r.status,
-            })
+            gq.append(
+                {
+                    "Rank": rank,
+                    "MH": r.mh_id,
+                    "Source MSS": f"MSS_{r.source_mss_id}",
+                    "Priority": r.priority,
+                    "Lamport T": r.timestamp,
+                    "Local?": is_local,
+                    "Status": r.status,
+                }
+            )
         st.dataframe(pd.DataFrame(gq), use_container_width=True, hide_index=True)
-        st.caption(f"Token at **MSS_{holder.id}** — only **local** PENDING requests can be granted.")
+        st.caption(
+            f"Token at **MSS_{holder.id}** — only **local** PENDING requests can be granted."
+        )
     else:
         st.info("Global queue is empty or no token holder.")
 
@@ -551,23 +633,27 @@ with tab3:
 
     for mss in ring.nodes:
         token_badge = " 🔑 (Token Holder)" if mss.has_token else ""
-        with st.expander(f"📋 MSS_{mss.id}{token_badge}  —  {len(mss.replicated_log)} log entries", expanded=True):
+        with st.expander(
+            f"📋 MSS_{mss.id}{token_badge}  —  {len(mss.replicated_log)} log entries",
+            expanded=True,
+        ):
             if mss.replicated_log:
                 log_data = []
-                for idx, r in enumerate(mss.replicated_log, 1):
+                for idx_r, r in enumerate(mss.replicated_log, 1):
                     is_local = "Local" if r.source_mss_id == mss.id else "Replicated"
-                    log_data.append({
-                        "#": idx,
-                        "Request ID": r.request_id,
-                        "MH": r.mh_id,
-                        "Origin MSS": f"MSS_{r.source_mss_id}",
-                        "Priority": r.priority,
-                        "Lamport T": r.timestamp,
-                        "Type": is_local,
-                        "Status": r.status,
-                    })
+                    log_data.append(
+                        {
+                            "#": idx_r,
+                            "Request ID": r.request_id,
+                            "MH": r.mh_id,
+                            "Origin MSS": f"MSS_{r.source_mss_id}",
+                            "Priority": r.priority,
+                            "Lamport T": r.timestamp,
+                            "Type": is_local,
+                            "Status": r.status,
+                        }
+                    )
                 df = pd.DataFrame(log_data)
-                # colour the status column
                 st.dataframe(df, use_container_width=True, hide_index=True)
             else:
                 st.caption("No entries yet")
@@ -579,11 +665,15 @@ with tab3:
         ids = sorted(set(r.request_id for r in mss.replicated_log))
         sets.append(ids)
     if len(sets) > 1 and all(s == sets[0] for s in sets):
-        st.success("✅ All MSSs have identical replicated request sets (replication is consistent)")
+        st.success(
+            "✅ All MSSs have identical replicated request sets (replication is consistent)"
+        )
     elif not any(sets):
         st.info("No requests to compare yet")
     else:
-        st.warning("⚠️ Logs not yet synchronized (requests may still be propagating)")
+        st.warning(
+            "⚠️ Logs not yet synchronized (requests may still be propagating)"
+        )
 
 # ────────── TAB 4: QUEUES AFTER SERVICE ──────────
 with tab4:
@@ -594,35 +684,43 @@ with tab4:
     )
 
     cols = st.columns(ring.n)
-    for idx, mss in enumerate(ring.nodes):
-        with cols[idx]:
+    for idx_col, mss in enumerate(ring.nodes):
+        with cols[idx_col]:
             tok = " 🔑" if mss.has_token else ""
             st.markdown(f"#### MSS_{mss.id}{tok}")
 
-            # local queue
             st.caption("**Local Queue (own MHs)**")
             if mss.local_queue:
-                ldf = pd.DataFrame([{
-                    "MH": r.mh_id,
-                    "P": r.priority,
-                    "T": r.timestamp,
-                    "Status": r.status,
-                } for r in mss.local_queue])
+                ldf = pd.DataFrame(
+                    [
+                        {
+                            "MH": r.mh_id,
+                            "P": r.priority,
+                            "T": r.timestamp,
+                            "Status": r.status,
+                        }
+                        for r in mss.local_queue
+                    ]
+                )
                 st.dataframe(ldf, hide_index=True, use_container_width=True)
             else:
                 st.success("Empty ✓")
 
-            # global priority queue
             st.caption("**Global Priority Queue**")
             if mss.global_queue:
-                gdf = pd.DataFrame([{
-                    "Rank": i + 1,
-                    "MH": r.mh_id,
-                    "MSS": r.source_mss_id,
-                    "P": r.priority,
-                    "T": r.timestamp,
-                    "Status": r.status,
-                } for i, r in enumerate(mss.global_queue)])
+                gdf = pd.DataFrame(
+                    [
+                        {
+                            "Rank": i + 1,
+                            "MH": r.mh_id,
+                            "MSS": r.source_mss_id,
+                            "P": r.priority,
+                            "T": r.timestamp,
+                            "Status": r.status,
+                        }
+                        for i, r in enumerate(mss.global_queue)
+                    ]
+                )
                 st.dataframe(gdf, hide_index=True, use_container_width=True)
             else:
                 st.success("Empty ✓")
@@ -637,28 +735,38 @@ with tab4:
                 completed.append(r.to_dict())
                 seen_ids.add(r.request_id)
     if completed:
-        st.dataframe(pd.DataFrame(completed), use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame(completed), use_container_width=True, hide_index=True
+        )
     else:
-        st.warning("No completed requests yet.  Grant and complete some requests using the sidebar.")
+        st.warning(
+            "No completed requests yet.  "
+            "Grant and complete some requests using the sidebar."
+        )
 
     st.markdown("---")
     st.markdown("#### Per-MSS Statistics")
     st.dataframe(
         pd.DataFrame([mss.stats() for mss in ring.nodes]),
-        use_container_width=True, hide_index=True,
+        use_container_width=True,
+        hide_index=True,
     )
 
-    # message complexity note
     total_msgs = sum(m.messages_sent + m.messages_received for m in ring.nodes)
-    total_reqs = len(set(r.request_id for r in ring.nodes[0].replicated_log)) if ring.nodes[0].replicated_log else 0
+    total_reqs = (
+        len(set(r.request_id for r in ring.nodes[0].replicated_log))
+        if ring.nodes[0].replicated_log
+        else 0
+    )
+    avg_str = f"{total_msgs / total_reqs:.1f}" if total_reqs else "—"
+
     st.markdown("#### Message Complexity")
     st.info(
         f"**N (MSSs):** {ring.n}  \n"
         f"**Messages per broadcast:** N − 1 = {ring.n - 1}  \n"
         f"**Total unique requests:** {total_reqs}  \n"
         f"**Total messages exchanged:** {total_msgs}  \n"
-        f"**Avg messages / request:** "
-        f"{total_msgs / total_reqs:.1f}" if total_reqs else "—"
+        f"**Avg messages / request:** {avg_str}"
     )
 
 # ── footer ──
