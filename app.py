@@ -12,9 +12,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import math
-import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple
 import plotly.graph_objects as go
 
 # ═══════════════════════════════════════════════════════════════
@@ -226,43 +225,43 @@ class TokenManager:
 #                   COMPREHENSIVE ANIMATION SYSTEM
 # ═══════════════════════════════════════════════════════════════
 
-def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_A", 
-                                    handoff_mh: str = "MH_2_B"):
+def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_A", 
+                                    handoff_mh: str = "MH_3_B"):
     """
-    Create a comprehensive animation showing the full token ring lifecycle:
-    1. Free token circulates
-    2. MH sends request to MSS (small square message)
-    3. MSS queues request and changes color
-    4. Token arrives, MSS holds it
-    5. MSS grants permission to MH
-    6. MH enters CS, then releases
-    7. Another MH requests but does handoff before token arrives
-    8. Request is killed, MH re-registers at new MSS
+    Create a comprehensive animation showing the full token ring lifecycle.
+    
+    Key sequence:
+    1. MH sends request to its MSS FIRST (before token arrives)
+    2. Token starts circulating from MSS_0
+    3. Token briefly stops at each MSS (checks queue)
+    4. If no pending request, token is released quickly
+    5. If pending request exists, token is HELD longer
+    6. MSS grants permission, MH enters CS
+    7. After CS, another MH requests but does handoff
     """
     
     radius = 2.2
-    mh_radius = 0.5  # Distance of MHs from their MSS
+    mh_radius = 0.55
     
-    # Calculate MSS positions
+    # Calculate MSS positions (clockwise from top)
     angles = [2 * math.pi * i / num_mss - math.pi / 2 for i in range(num_mss)]
     mss_x = [radius * math.cos(a) for a in angles]
     mss_y = [radius * math.sin(a) for a in angles]
     
     # Calculate MH positions (3 MHs per MSS)
-    mh_positions = {}  # {mss_id: [(x1,y1), (x2,y2), (x3,y3)]}
-    mh_names = {}  # {mss_id: [name1, name2, name3]}
+    mh_positions = {}
+    mh_names = {}
     
     for mss_id in range(num_mss):
         mss_angle = angles[mss_id]
         positions = []
         names = []
         for mh_idx in range(3):
-            # Position MHs in an arc outside the MSS
             mh_angle = mss_angle + math.pi + (mh_idx - 1) * 0.4
             mx = mss_x[mss_id] + mh_radius * math.cos(mh_angle)
             my = mss_y[mss_id] + mh_radius * math.sin(mh_angle)
             positions.append((mx, my))
-            names.append(f"MH_{mss_id}_{chr(65 + mh_idx)}")  # MH_0_A, MH_0_B, MH_0_C, etc.
+            names.append(f"MH_{mss_id}_{chr(65 + mh_idx)}")
         mh_positions[mss_id] = positions
         mh_names[mss_id] = names
     
@@ -273,7 +272,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
     # Parse handoff MH info
     handoff_mss_id = int(handoff_mh.split('_')[1])
     handoff_mh_idx = ord(handoff_mh.split('_')[2]) - 65
-    handoff_target_mss = (handoff_mss_id + 1) % num_mss  # Moves to next MSS
+    handoff_target_mss = (handoff_mss_id + 1) % num_mss
     
     # Colors
     colors = {
@@ -281,6 +280,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         'mss_pending': '#FFD700',
         'mss_holding': '#00FF00',
         'mss_granting': '#CC00FF',
+        'mss_checking': '#87CEEB',
         'mh_normal': '#4CAF50',
         'mh_requesting': '#FF5722',
         'mh_in_cs': '#9C27B0',
@@ -289,6 +289,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         'token_held': '#00FF00',
         'request_msg': '#FF5722',
         'release_msg': '#2196F3',
+        'permission_msg': '#9C27B0',
         'ring': '#444444',
         'connection': '#666666',
     }
@@ -297,17 +298,18 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
     log_entries = []
     
     # Animation parameters
-    steps_between_mss = 15
-    wait_steps = 20
-    message_steps = 10
+    steps_between_mss = 12
+    brief_stop = 8
+    long_hold = 25
+    message_steps = 8
     
     def interpolate(start, end, t):
-        """Linear interpolation between two points"""
-        return start + (end - start) * t
+        return start + (end - start) * min(1.0, max(0.0, t))
     
     def create_frame(token_pos, token_color, mss_colors, mh_colors, 
-                     request_msg=None, release_msg=None, handoff_line=None,
-                     frame_num=0, active_mh=None, log_text=""):
+                     request_msg=None, release_msg=None, permission_msg=None,
+                     handoff_line=None, frame_num=0, log_text="",
+                     mh_override_pos=None):
         """Create a single animation frame"""
         
         data = []
@@ -331,9 +333,8 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
             ax = radius * 1.1 * math.cos(mid_angle)
             ay = radius * 1.1 * math.sin(mid_angle)
             
-            # Arrow direction (tangent to circle)
             arrow_angle = mid_angle + math.pi / 2
-            arrow_len = 0.15
+            arrow_len = 0.12
             data.append(go.Scatter(
                 x=[ax, ax + arrow_len * math.cos(arrow_angle)],
                 y=[ay, ay + arrow_len * math.sin(arrow_angle)],
@@ -347,6 +348,12 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         for mss_id in range(num_mss):
             for mh_idx in range(3):
                 mx, my = mh_positions[mss_id][mh_idx]
+                # Check if this MH has overridden position
+                mh_name = mh_names[mss_id][mh_idx]
+                if mh_override_pos and mh_name in mh_override_pos:
+                    mx, my = mh_override_pos[mh_name]
+                    # Don't draw connection for moving MH
+                    continue
                 data.append(go.Scatter(
                     x=[mss_x[mss_id], mx],
                     y=[mss_y[mss_id], my],
@@ -358,7 +365,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         
         # MSS nodes
         mss_color_list = [mss_colors.get(i, colors['mss_normal']) for i in range(num_mss)]
-        mss_sizes = [50 if mss_colors.get(i) else 45 for i in range(num_mss)]
+        mss_sizes = [55 if mss_colors.get(i) else 48 for i in range(num_mss)]
         
         data.append(go.Scatter(
             x=mss_x,
@@ -374,18 +381,23 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
             textposition='top center',
             textfont=dict(color='white', size=11, family='Arial Black'),
             hoverinfo='text',
-            hovertext=[f'MSS_{i}<br>Status: {"Holding Token" if mss_colors.get(i) == colors["mss_holding"] else "Normal"}' 
-                       for i in range(num_mss)],
+            hovertext=[f'MSS_{i}' for i in range(num_mss)],
             showlegend=False,
         ))
         
         # MH nodes
         for mss_id in range(num_mss):
             for mh_idx in range(3):
-                mx, my = mh_positions[mss_id][mh_idx]
                 mh_name = mh_names[mss_id][mh_idx]
+                
+                # Check for overridden position
+                if mh_override_pos and mh_name in mh_override_pos:
+                    mx, my = mh_override_pos[mh_name]
+                else:
+                    mx, my = mh_positions[mss_id][mh_idx]
+                
                 mh_color = mh_colors.get(mh_name, colors['mh_normal'])
-                mh_size = 25 if mh_colors.get(mh_name) else 20
+                mh_size = 28 if mh_colors.get(mh_name) else 22
                 
                 data.append(go.Scatter(
                     x=[mx],
@@ -397,49 +409,75 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
                         line=dict(width=2, color='white'),
                         symbol='circle'
                     ),
-                    text=[mh_name.split('_')[-1]],  # Just show A, B, C
+                    text=[mh_name.split('_')[-1]],
                     textposition='bottom center',
-                    textfont=dict(color='white', size=9),
+                    textfont=dict(color='white', size=10),
                     hoverinfo='text',
-                    hovertext=f'{mh_name}<br>MSS_{mss_id}',
+                    hovertext=f'{mh_name}',
                     showlegend=False,
                 ))
         
-        # Request message (small square)
+        # Request message (small orange square)
         if request_msg:
             data.append(go.Scatter(
                 x=[request_msg['x']],
                 y=[request_msg['y']],
-                mode='markers',
+                mode='markers+text',
                 marker=dict(
-                    size=12,
+                    size=15,
                     color=colors['request_msg'],
                     symbol='square',
-                    line=dict(width=1, color='white')
+                    line=dict(width=2, color='white')
                 ),
+                text=['REQ'],
+                textposition='top center',
+                textfont=dict(color='white', size=8),
                 hoverinfo='text',
                 hovertext='REQUEST',
                 showlegend=False,
             ))
         
-        # Release message (small square)
+        # Permission message (small purple square)
+        if permission_msg:
+            data.append(go.Scatter(
+                x=[permission_msg['x']],
+                y=[permission_msg['y']],
+                mode='markers+text',
+                marker=dict(
+                    size=15,
+                    color=colors['permission_msg'],
+                    symbol='square',
+                    line=dict(width=2, color='white')
+                ),
+                text=['PERM'],
+                textposition='top center',
+                textfont=dict(color='white', size=8),
+                hoverinfo='text',
+                hovertext='PERMISSION',
+                showlegend=False,
+            ))
+        
+        # Release message (small blue square)
         if release_msg:
             data.append(go.Scatter(
                 x=[release_msg['x']],
                 y=[release_msg['y']],
-                mode='markers',
+                mode='markers+text',
                 marker=dict(
-                    size=12,
+                    size=15,
                     color=colors['release_msg'],
                     symbol='square',
-                    line=dict(width=1, color='white')
+                    line=dict(width=2, color='white')
                 ),
+                text=['REL'],
+                textposition='top center',
+                textfont=dict(color='white', size=8),
                 hoverinfo='text',
                 hovertext='RELEASE',
                 showlegend=False,
             ))
         
-        # Handoff line (dashed arrow showing MH movement)
+        # Handoff line
         if handoff_line:
             data.append(go.Scatter(
                 x=[handoff_line['x1'], handoff_line['x2']],
@@ -458,25 +496,27 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         data.append(go.Scatter(
             x=[tx],
             y=[ty],
-            mode='markers',
+            mode='markers+text',
             marker=dict(
-                size=30,
+                size=35,
                 color=token_color,
                 symbol='circle',
-                line=dict(width=3, color='#333')
+                line=dict(width=4, color='#333')
             ),
+            text=['🔑'],
+            textfont=dict(size=14),
             hoverinfo='text',
-            hovertext=f'TOKEN<br>Position: {token_pos:.1f}',
+            hovertext=f'TOKEN',
             showlegend=False,
         ))
         
-        # Log text box
+        # Log text box at bottom
         data.append(go.Scatter(
             x=[0],
-            y=[-3.2],
+            y=[-3.3],
             mode='text',
             text=[f'<b>{log_text}</b>'],
-            textfont=dict(size=12, color='white'),
+            textfont=dict(size=13, color='white'),
             hoverinfo='none',
             showlegend=False,
         ))
@@ -486,42 +526,22 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
     frame_idx = 0
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 1: Free token circulating (a few rotations)
+    # PHASE 1: MH sends REQUEST to MSS FIRST (BEFORE token arrives)
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append("Phase 1: Free token circulates on the ring...")
+    log_entries.append(f"Phase 1: {requesting_mh} sends REQUEST to MSS_{req_mss_id}")
     
-    for pos in range(req_mss_id * steps_between_mss):
-        token_pos = pos / steps_between_mss
-        frames.append(create_frame(
-            token_pos=token_pos,
-            token_color=colors['token_free'],
-            mss_colors={},
-            mh_colors={},
-            frame_num=frame_idx,
-            log_text="⚪ Free token circulating..."
-        ))
-        frame_idx += 1
-    
-    # ═══════════════════════════════════════════════════════════════
-    # PHASE 2: MH sends REQUEST to its MSS
-    # ═══════════════════════════════════════════════════════════════
-    
-    log_entries.append(f"Phase 2: {requesting_mh} sends REQUEST to MSS_{req_mss_id}")
-    
-    # Token continues while request is being sent
     mh_x, mh_y = mh_positions[req_mss_id][req_mh_idx]
     mss_target_x, mss_target_y = mss_x[req_mss_id], mss_y[req_mss_id]
     
+    # Token starts at MSS_0, request happens immediately
     for step in range(message_steps):
         t = step / message_steps
         msg_x = interpolate(mh_x, mss_target_x, t)
         msg_y = interpolate(mh_y, mss_target_y, t)
         
-        token_pos = req_mss_id + step / (steps_between_mss * 2)
-        
         frames.append(create_frame(
-            token_pos=token_pos,
+            token_pos=0,  # Token still at MSS_0
             token_color=colors['token_free'],
             mss_colors={},
             mh_colors={requesting_mh: colors['mh_requesting']},
@@ -532,16 +552,14 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 3: MSS receives request, changes color, queues it
+    # PHASE 2: MSS receives request, adds to queue (turns yellow)
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append(f"Phase 3: MSS_{req_mss_id} receives request, adds to queue")
+    log_entries.append(f"Phase 2: MSS_{req_mss_id} receives request, queues it")
     
-    for step in range(wait_steps // 2):
-        token_pos = req_mss_id + 0.5 + step / steps_between_mss
-        
+    for step in range(brief_stop):
         frames.append(create_frame(
-            token_pos=token_pos,
+            token_pos=0,
             token_color=colors['token_free'],
             mss_colors={req_mss_id: colors['mss_pending']},
             mh_colors={requesting_mh: colors['mh_requesting']},
@@ -551,55 +569,87 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 4: Token continues around the ring back to requesting MSS
+    # PHASE 3: Token starts circulating, briefly stops at each MSS
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append(f"Phase 4: Token continues circulating...")
+    log_entries.append("Phase 3: Token circulates, briefly checking each MSS")
     
-    # Token travels from current position back around to req_mss_id
-    current_token_pos = req_mss_id + 1
-    target_token_pos = req_mss_id + num_mss  # Full circle
+    for current_mss in range(req_mss_id):
+        # Move token to this MSS
+        for step in range(steps_between_mss):
+            t = step / steps_between_mss
+            token_pos = current_mss + t
+            
+            frames.append(create_frame(
+                token_pos=token_pos,
+                token_color=colors['token_free'],
+                mss_colors={req_mss_id: colors['mss_pending']},
+                mh_colors={requesting_mh: colors['mh_requesting']},
+                frame_num=frame_idx,
+                log_text=f"⚪ Token moving to MSS_{current_mss}..."
+            ))
+            frame_idx += 1
+        
+        # Brief stop at this MSS (no pending request here)
+        for step in range(brief_stop):
+            frames.append(create_frame(
+                token_pos=current_mss,
+                token_color=colors['token_free'],
+                mss_colors={
+                    current_mss: colors['mss_checking'],
+                    req_mss_id: colors['mss_pending']
+                },
+                mh_colors={requesting_mh: colors['mh_requesting']},
+                frame_num=frame_idx,
+                log_text=f"🔍 MSS_{current_mss}: No pending requests → releasing token"
+            ))
+            frame_idx += 1
     
-    for pos in range(int((target_token_pos - current_token_pos) * steps_between_mss)):
-        token_pos = current_token_pos + pos / steps_between_mss
+    # ═══════════════════════════════════════════════════════════════
+    # PHASE 4: Token travels to requesting MSS
+    # ═══════════════════════════════════════════════════════════════
+    
+    log_entries.append(f"Phase 4: Token arrives at MSS_{req_mss_id}")
+    
+    # Move from last MSS to requesting MSS
+    start_mss = req_mss_id - 1 if req_mss_id > 0 else 0
+    for step in range(steps_between_mss):
+        t = step / steps_between_mss
+        token_pos = start_mss + t + 1
         
         frames.append(create_frame(
-            token_pos=token_pos % num_mss,
+            token_pos=token_pos,
             token_color=colors['token_free'],
             mss_colors={req_mss_id: colors['mss_pending']},
             mh_colors={requesting_mh: colors['mh_requesting']},
             frame_num=frame_idx,
-            log_text=f"⚪ Token at MSS_{int(token_pos) % num_mss}, heading to MSS_{req_mss_id}"
+            log_text=f"⚪ Token approaching MSS_{req_mss_id}..."
         ))
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 5: Token arrives at MSS, MSS HOLDS it
+    # PHASE 5: MSS HOLDS token (has pending request)
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append(f"Phase 5: Token arrives at MSS_{req_mss_id}, MSS HOLDS token")
+    log_entries.append(f"Phase 5: MSS_{req_mss_id} HOLDS token (pending request found)")
     
-    for step in range(wait_steps):
-        # Pulsing effect for holding
-        pulse = 1 + 0.1 * math.sin(step * 0.5)
-        
+    for step in range(long_hold):
         frames.append(create_frame(
             token_pos=req_mss_id,
             token_color=colors['token_held'],
             mss_colors={req_mss_id: colors['mss_holding']},
             mh_colors={requesting_mh: colors['mh_requesting']},
             frame_num=frame_idx,
-            log_text=f"🟢 MSS_{req_mss_id} HOLDING token, checking queue..."
+            log_text=f"🟢 MSS_{req_mss_id} HOLDING token! Pending request found."
         ))
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 6: MSS grants PERMISSION to MH
+    # PHASE 6: MSS sends PERMISSION to MH
     # ═══════════════════════════════════════════════════════════════
     
     log_entries.append(f"Phase 6: MSS_{req_mss_id} grants PERMISSION to {requesting_mh}")
     
-    # Permission message from MSS to MH
     for step in range(message_steps):
         t = step / message_steps
         msg_x = interpolate(mss_target_x, mh_x, t)
@@ -610,7 +660,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
             token_color=colors['token_held'],
             mss_colors={req_mss_id: colors['mss_granting']},
             mh_colors={requesting_mh: colors['mh_requesting']},
-            release_msg={'x': msg_x, 'y': msg_y},  # Using blue for permission
+            permission_msg={'x': msg_x, 'y': msg_y},
             frame_num=frame_idx,
             log_text=f"📨 MSS_{req_mss_id} sending PERMISSION to {requesting_mh}"
         ))
@@ -622,7 +672,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
     
     log_entries.append(f"Phase 7: {requesting_mh} enters CRITICAL SECTION")
     
-    for step in range(wait_steps):
+    for step in range(long_hold):
         frames.append(create_frame(
             token_pos=req_mss_id,
             token_color=colors['token_held'],
@@ -656,21 +706,21 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 9: MSS releases token, another MH requests
+    # PHASE 9: Token released, another MH sends request
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append(f"Phase 9: MSS_{req_mss_id} releases token; {handoff_mh} sends request")
+    log_entries.append(f"Phase 9: Token released; {handoff_mh} sends new request")
     
-    # Another MH (handoff_mh) sends a request just as token leaves
     handoff_mh_x, handoff_mh_y = mh_positions[handoff_mss_id][handoff_mh_idx]
     handoff_mss_target_x, handoff_mss_target_y = mss_x[handoff_mss_id], mss_y[handoff_mss_id]
     
+    # Token starts moving, handoff MH sends request
     for step in range(message_steps):
         t = step / message_steps
         msg_x = interpolate(handoff_mh_x, handoff_mss_target_x, t)
         msg_y = interpolate(handoff_mh_y, handoff_mss_target_y, t)
         
-        token_pos = req_mss_id + t * 0.5
+        token_pos = req_mss_id + t * 0.3
         
         frames.append(create_frame(
             token_pos=token_pos,
@@ -684,8 +734,8 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         frame_idx += 1
     
     # MSS receives the request
-    for step in range(wait_steps // 2):
-        token_pos = req_mss_id + 0.5 + step / (steps_between_mss * 2)
+    for step in range(brief_stop):
+        token_pos = req_mss_id + 0.3 + step * 0.02
         
         frames.append(create_frame(
             token_pos=token_pos,
@@ -698,43 +748,45 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 10: HANDOFF - MH moves to different MSS!
+    # PHASE 10: HANDOFF! MH moves to different MSS before token arrives
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append(f"Phase 10: HANDOFF! {handoff_mh} moves from MSS_{handoff_mss_id} to MSS_{handoff_target_mss}")
+    log_entries.append(f"Phase 10: HANDOFF! {handoff_mh} moves to MSS_{handoff_target_mss}")
     
-    new_mh_x, new_mh_y = mh_positions[handoff_target_mss][0]  # Takes position A at new MSS
+    new_mh_x, new_mh_y = mh_positions[handoff_target_mss][0]
     
     for step in range(message_steps * 2):
         t = step / (message_steps * 2)
         current_mh_x = interpolate(handoff_mh_x, new_mh_x, t)
         current_mh_y = interpolate(handoff_mh_y, new_mh_y, t)
         
-        token_pos = req_mss_id + 1 + step / (steps_between_mss * 2)
+        token_pos = (req_mss_id + 0.5 + step * 0.03) % num_mss
         
         frames.append(create_frame(
-            token_pos=token_pos % num_mss,
+            token_pos=token_pos,
             token_color=colors['token_free'],
             mss_colors={handoff_mss_id: colors['mss_pending']},
             mh_colors={handoff_mh: colors['mh_handoff']},
-            handoff_line={'x1': handoff_mh_x, 'y1': handoff_mh_y, 'x2': current_mh_x, 'y2': current_mh_y},
+            handoff_line={'x1': handoff_mh_x, 'y1': handoff_mh_y, 
+                         'x2': current_mh_x, 'y2': current_mh_y},
             frame_num=frame_idx,
-            log_text=f"📱 HANDOFF: {handoff_mh} moving to MSS_{handoff_target_mss}..."
+            log_text=f"📱 HANDOFF: {handoff_mh} moving to MSS_{handoff_target_mss}...",
+            mh_override_pos={handoff_mh: (current_mh_x, current_mh_y)}
         ))
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 11: Request KILLED at old MSS
+    # PHASE 11: Request KILLED at old MSS (MH no longer there)
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append(f"Phase 11: Request KILLED at MSS_{handoff_mss_id}!")
+    log_entries.append(f"Phase 11: Request KILLED at MSS_{handoff_mss_id} (MH left)")
     
-    for step in range(wait_steps):
-        token_pos = (req_mss_id + 2 + step / steps_between_mss) % num_mss
+    for step in range(long_hold):
+        token_pos = (req_mss_id + 1.5 + step * 0.02) % num_mss
         
-        # Flash effect for killed request
-        if step % 4 < 2:
-            mss_col = '#FF0000'  # Red flash
+        # Flash red for killed request
+        if step % 6 < 3:
+            mss_col = '#FF0000'
         else:
             mss_col = colors['mss_normal']
         
@@ -744,7 +796,8 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
             mss_colors={handoff_mss_id: mss_col},
             mh_colors={},
             frame_num=frame_idx,
-            log_text=f"❌ Request from {handoff_mh} KILLED at MSS_{handoff_mss_id}!"
+            log_text=f"❌ Request from {handoff_mh} KILLED! MH no longer at MSS_{handoff_mss_id}",
+            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         ))
         frame_idx += 1
     
@@ -752,7 +805,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
     # PHASE 12: MH re-registers at new MSS
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append(f"Phase 12: {handoff_mh} re-registers request at MSS_{handoff_target_mss}")
+    log_entries.append(f"Phase 12: {handoff_mh} re-registers at MSS_{handoff_target_mss}")
     
     new_mss_target_x, new_mss_target_y = mss_x[handoff_target_mss], mss_y[handoff_target_mss]
     
@@ -761,7 +814,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         msg_x = interpolate(new_mh_x, new_mss_target_x, t)
         msg_y = interpolate(new_mh_y, new_mss_target_y, t)
         
-        token_pos = (req_mss_id + 3 + step / (steps_between_mss * 2)) % num_mss
+        token_pos = (req_mss_id + 2 + step * 0.02) % num_mss
         
         frames.append(create_frame(
             token_pos=token_pos,
@@ -770,13 +823,14 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
             mh_colors={handoff_mh: colors['mh_requesting']},
             request_msg={'x': msg_x, 'y': msg_y},
             frame_num=frame_idx,
-            log_text=f"📤 {handoff_mh} RE-REGISTERING at MSS_{handoff_target_mss}"
+            log_text=f"📤 {handoff_mh} RE-REGISTERING at MSS_{handoff_target_mss}",
+            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         ))
         frame_idx += 1
     
     # New MSS receives request
-    for step in range(wait_steps // 2):
-        token_pos = (req_mss_id + 3.5 + step / steps_between_mss) % num_mss
+    for step in range(brief_stop):
+        token_pos = (req_mss_id + 2.2 + step * 0.02) % num_mss
         
         frames.append(create_frame(
             token_pos=token_pos,
@@ -784,46 +838,93 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
             mss_colors={handoff_target_mss: colors['mss_pending']},
             mh_colors={handoff_mh: colors['mh_requesting']},
             frame_num=frame_idx,
-            log_text=f"📋 MSS_{handoff_target_mss} queued NEW request from {handoff_mh}"
+            log_text=f"📋 MSS_{handoff_target_mss} queued NEW request from {handoff_mh}",
+            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         ))
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 13: Token reaches new MSS, grants to handoff MH
+    # PHASE 13: Token continues, briefly stops at intermediate MSSs
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append(f"Phase 13: Token reaches MSS_{handoff_target_mss}, grants to {handoff_mh}")
+    log_entries.append("Phase 13: Token continues, checking intermediate MSSs")
     
-    # Token travels to new MSS
-    current_pos = (req_mss_id + 4) % num_mss
+    current_pos = int(req_mss_id + 2.5) % num_mss
+    
     while current_pos != handoff_target_mss:
+        # Move to this MSS
         for step in range(steps_between_mss):
-            token_pos = current_pos + step / steps_between_mss
+            t = step / steps_between_mss
+            token_pos = (current_pos - 1 + t) % num_mss
+            if token_pos < 0:
+                token_pos += num_mss
             
             frames.append(create_frame(
-                token_pos=token_pos % num_mss,
+                token_pos=token_pos,
                 token_color=colors['token_free'],
                 mss_colors={handoff_target_mss: colors['mss_pending']},
                 mh_colors={handoff_mh: colors['mh_requesting']},
                 frame_num=frame_idx,
-                log_text=f"⚪ Token heading to MSS_{handoff_target_mss}..."
+                log_text=f"⚪ Token moving...",
+                mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
             ))
             frame_idx += 1
+        
+        # Brief stop
+        for step in range(brief_stop):
+            frames.append(create_frame(
+                token_pos=current_pos,
+                token_color=colors['token_free'],
+                mss_colors={
+                    current_pos: colors['mss_checking'],
+                    handoff_target_mss: colors['mss_pending']
+                },
+                mh_colors={handoff_mh: colors['mh_requesting']},
+                frame_num=frame_idx,
+                log_text=f"🔍 MSS_{current_pos}: No pending requests → releasing token",
+                mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+            ))
+            frame_idx += 1
+        
         current_pos = (current_pos + 1) % num_mss
     
-    # Token at new MSS, holding
-    for step in range(wait_steps):
+    # ═══════════════════════════════════════════════════════════════
+    # PHASE 14: Token arrives at new MSS, grants to MH
+    # ═══════════════════════════════════════════════════════════════
+    
+    log_entries.append(f"Phase 14: Token at MSS_{handoff_target_mss}, grants to {handoff_mh}")
+    
+    # Move token to target MSS
+    for step in range(steps_between_mss):
+        t = step / steps_between_mss
+        prev_mss = (handoff_target_mss - 1) % num_mss
+        token_pos = prev_mss + t
+        
+        frames.append(create_frame(
+            token_pos=token_pos % num_mss,
+            token_color=colors['token_free'],
+            mss_colors={handoff_target_mss: colors['mss_pending']},
+            mh_colors={handoff_mh: colors['mh_requesting']},
+            frame_num=frame_idx,
+            log_text=f"⚪ Token approaching MSS_{handoff_target_mss}...",
+            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
+        ))
+        frame_idx += 1
+    
+    # Hold at new MSS
+    for step in range(long_hold):
         frames.append(create_frame(
             token_pos=handoff_target_mss,
             token_color=colors['token_held'],
             mss_colors={handoff_target_mss: colors['mss_holding']},
             mh_colors={handoff_mh: colors['mh_requesting']},
             frame_num=frame_idx,
-            log_text=f"🟢 MSS_{handoff_target_mss} HOLDING token..."
+            log_text=f"🟢 MSS_{handoff_target_mss} HOLDING token!",
+            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         ))
         frame_idx += 1
     
-    # Grant to MH
+    # Grant permission
     for step in range(message_steps):
         t = step / message_steps
         msg_x = interpolate(new_mss_target_x, new_mh_x, t)
@@ -834,31 +935,33 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
             token_color=colors['token_held'],
             mss_colors={handoff_target_mss: colors['mss_granting']},
             mh_colors={handoff_mh: colors['mh_requesting']},
-            release_msg={'x': msg_x, 'y': msg_y},
+            permission_msg={'x': msg_x, 'y': msg_y},
             frame_num=frame_idx,
-            log_text=f"📨 MSS_{handoff_target_mss} granting PERMISSION to {handoff_mh}"
+            log_text=f"📨 MSS_{handoff_target_mss} granting PERMISSION",
+            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         ))
         frame_idx += 1
     
     # MH in CS
-    for step in range(wait_steps):
+    for step in range(long_hold):
         frames.append(create_frame(
             token_pos=handoff_target_mss,
             token_color=colors['token_held'],
             mss_colors={handoff_target_mss: colors['mss_holding']},
             mh_colors={handoff_mh: colors['mh_in_cs']},
             frame_num=frame_idx,
-            log_text=f"🟣 {handoff_mh} in CRITICAL SECTION..."
+            log_text=f"🟣 {handoff_mh} in CRITICAL SECTION (at new MSS)",
+            mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         ))
         frame_idx += 1
     
     # ═══════════════════════════════════════════════════════════════
-    # PHASE 14: Return to normal - free token circulates
+    # PHASE 15: Return to normal
     # ═══════════════════════════════════════════════════════════════
     
-    log_entries.append("Phase 14: Normal operation resumes, free token circulates")
+    log_entries.append("Phase 15: Normal operation resumes")
     
-    for step in range(steps_between_mss * 3):
+    for step in range(steps_between_mss * 2):
         token_pos = (handoff_target_mss + step / steps_between_mss) % num_mss
         
         frames.append(create_frame(
@@ -871,16 +974,14 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
         ))
         frame_idx += 1
     
-    # Create the initial figure
-    initial_frame = frames[0] if frames else None
-    
+    # Create figure with frames
     fig = go.Figure(
-        data=initial_frame.data if initial_frame else [],
+        data=frames[0].data if frames else [],
         frames=frames,
         layout=go.Layout(
             title=dict(
-                text='<b>Token Ring Mutual Exclusion - Complete Lifecycle</b>',
-                font=dict(color='white', size=16),
+                text='<b>Token Ring Mutual Exclusion - MSS/MH Architecture</b>',
+                font=dict(color='white', size=18),
                 x=0.5,
             ),
             xaxis=dict(
@@ -894,7 +995,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
             ),
             plot_bgcolor='#1a1a2e',
             paper_bgcolor='#1a1a2e',
-            height=650,
+            height=700,
             margin=dict(l=20, r=20, t=60, b=60),
             showlegend=False,
         )
@@ -904,7 +1005,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_1_
 
 
 def create_static_ring_with_mhs(mss_list):
-    """Create a static ring visualization with MHs for the DME simulation tabs"""
+    """Create a static ring visualization with MHs"""
     n = len(mss_list)
     radius = 2.0
     mh_radius = 0.5
@@ -915,7 +1016,7 @@ def create_static_ring_with_mhs(mss_list):
     
     fig = go.Figure()
     
-    # Ring circle
+    # Ring
     ring_angles = np.linspace(0, 2 * np.pi, 100)
     fig.add_trace(go.Scatter(
         x=[radius * 1.05 * math.cos(a) for a in ring_angles],
@@ -926,50 +1027,8 @@ def create_static_ring_with_mhs(mss_list):
         showlegend=False,
     ))
     
-    # Arrows between MSS nodes
-    for i in range(n):
-        x0, y0 = xs[i], ys[i]
-        x1, y1 = xs[(i + 1) % n], ys[(i + 1) % n]
-        
-        dx, dy = x1 - x0, y1 - y0
-        length = math.hypot(dx, dy)
-        if length > 0:
-            shrink = 0.25
-            lx0 = x0 + dx * shrink
-            ly0 = y0 + dy * shrink
-            lx1 = x1 - dx * shrink
-            ly1 = y1 - dy * shrink
-            
-            fig.add_trace(go.Scatter(
-                x=[lx0, lx1], y=[ly0, ly1],
-                mode='lines',
-                line=dict(width=2, color='#555'),
-                hoverinfo='none',
-                showlegend=False,
-            ))
-            
-            # Arrowhead
-            arrow_size = 0.12
-            udx, udy = dx / length, dy / length
-            px, py = -udy, udx
-            tip_x, tip_y = lx1, ly1
-            base_x1 = tip_x - udx * arrow_size + px * arrow_size * 0.4
-            base_y1 = tip_y - udy * arrow_size + py * arrow_size * 0.4
-            base_x2 = tip_x - udx * arrow_size - px * arrow_size * 0.4
-            base_y2 = tip_y - udy * arrow_size - py * arrow_size * 0.4
-            
-            fig.add_trace(go.Scatter(
-                x=[tip_x, base_x1, base_x2, tip_x],
-                y=[tip_y, base_y1, base_y2, tip_y],
-                fill='toself',
-                fillcolor='#555',
-                line=dict(width=0),
-                hoverinfo='none',
-                showlegend=False,
-            ))
-    
     # MSS nodes
-    colors = ['gold' if mss.has_token else '#64b5f6' for mss in mss_list]
+    colors_list = ['gold' if mss.has_token else '#64b5f6' for mss in mss_list]
     sizes = [55 if mss.has_token else 45 for mss in mss_list]
     
     fig.add_trace(go.Scatter(
@@ -978,20 +1037,19 @@ def create_static_ring_with_mhs(mss_list):
         text=[f'MSS_{mss.id}' for mss in mss_list],
         textposition='top center',
         textfont=dict(size=12, color='black'),
-        marker=dict(size=sizes, color=colors, line=dict(width=2, color='black'), symbol='square'),
+        marker=dict(size=sizes, color=colors_list, line=dict(width=2, color='black'), symbol='square'),
         hoverinfo='text',
-        hovertext=[f'MSS_{mss.id}<br>MHs: {len(mss.mobile_hosts)}' for mss in mss_list],
+        hovertext=[f'MSS_{mss.id}' for mss in mss_list],
         showlegend=False,
     ))
     
-    # MH nodes (3 per MSS)
+    # MH nodes
     for idx, mss in enumerate(mss_list):
         for j, mh in enumerate(mss.mobile_hosts):
             offset_angle = angles[idx] + math.pi + (j - 1) * 0.4
             mx = xs[idx] + mh_radius * math.cos(offset_angle)
             my = ys[idx] + mh_radius * math.sin(offset_angle)
             
-            # Connection line
             fig.add_trace(go.Scatter(
                 x=[xs[idx], mx], y=[ys[idx], my],
                 mode='lines',
@@ -1000,21 +1058,20 @@ def create_static_ring_with_mhs(mss_list):
                 showlegend=False,
             ))
             
-            # MH marker
             fig.add_trace(go.Scatter(
                 x=[mx], y=[my],
                 mode='markers+text',
-                text=[mh.id.split('_')[-1]],  # Just show A, B, C
+                text=[mh.id.split('_')[-1]],
                 textposition='bottom center',
                 textfont=dict(size=9, color='#333'),
                 marker=dict(size=18, color='#4CAF50', line=dict(width=1, color='white')),
                 hoverinfo='text',
-                hovertext=f'{mh.id} | P={mh.base_priority} | MSS_{mss.id}',
+                hovertext=f'{mh.id} | P={mh.base_priority}',
                 showlegend=False,
             ))
     
     fig.update_layout(
-        title=dict(text='<b>MSS-MH Token Ring Architecture</b>', font=dict(size=16)),
+        title=dict(text='<b>MSS-MH Token Ring</b>', font=dict(size=16)),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-3.5, 3.5]),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-3.5, 3.5], scaleanchor='x'),
         height=550,
@@ -1038,7 +1095,7 @@ def build_scenario_with_3mhs(num_mss=4):
     for mss_id in range(num_mss):
         for mh_idx in range(3):
             mh_name = f"MH_{mss_id}_{chr(65 + mh_idx)}"
-            priority = 5 + mh_idx + mss_id  # Varied priorities
+            priority = 5 + mh_idx + mss_id
             mh = MobileHost(mh_name, ring.nodes[mss_id], base_priority=priority)
             ring.nodes[mss_id].add_mh(mh)
             mhs.append(mh)
@@ -1059,14 +1116,13 @@ st.markdown("""
         padding:.8rem;background:linear-gradient(90deg,#e3f2fd,#bbdefb);
         border-radius:10px;margin-bottom:1.2rem;}
 .sub{color:#555;text-align:center;margin-bottom:1.5rem;}
-.legend-box{display:inline-block;padding:8px 12px;margin:4px;border-radius:5px;font-size:12px;}
 </style>
 <div class="header">🔐 Token-Ring Mutual Exclusion — Replication Scheme</div>
 <p class="sub">MSS-MH Architecture &nbsp;|&nbsp; Request Broadcasting &nbsp;|&nbsp;
 Priority-Based Granting &nbsp;|&nbsp; Handoff Handling</p>
 """, unsafe_allow_html=True)
 
-# Session state initialization
+# Session state
 if 'ring' not in st.session_state:
     r, m = build_scenario_with_3mhs(4)
     st.session_state.ring = r
@@ -1074,7 +1130,6 @@ if 'ring' not in st.session_state:
     st.session_state.tm = TokenManager(r)
     st.session_state.step = 0
     st.session_state.reqs_made: List[Request] = []
-    st.session_state.anim_frame = 0
 
 ring: RingTopology = st.session_state.ring
 mhs: List[MobileHost] = st.session_state.mhs
@@ -1084,20 +1139,20 @@ tm: TokenManager = st.session_state.tm
 with st.sidebar:
     st.header('⚙️ Controls')
 
-    if st.button('🔄 Reset Everything', use_container_width=True):
+    if st.button('🔄 Reset', use_container_width=True):
         r, m = build_scenario_with_3mhs(4)
         st.session_state.ring = r
         st.session_state.mhs = m
         st.session_state.tm = TokenManager(r)
         st.session_state.step = 0
         st.session_state.reqs_made = []
-        st.session_state.anim_frame = 0
+        if 'current_frame' in st.session_state:
+            del st.session_state.current_frame
         st.rerun()
 
     st.markdown('---')
     st.subheader('📤 Send Request')
     
-    # Group MHs by MSS
     mh_by_mss = {}
     for mh in mhs:
         mss_id = mh.current_mss.id
@@ -1105,34 +1160,27 @@ with st.sidebar:
             mh_by_mss[mss_id] = []
         mh_by_mss[mss_id].append(mh)
     
-    selected_mss = st.selectbox('Select MSS', range(ring.n), format_func=lambda i: f'MSS_{i}')
+    selected_mss = st.selectbox('MSS', range(ring.n), format_func=lambda i: f'MSS_{i}')
     mhs_at_mss = mh_by_mss.get(selected_mss, [])
     
     if mhs_at_mss:
-        selected_mh = st.selectbox(
-            'Select MH',
-            range(len(mhs_at_mss)),
-            format_func=lambda i: f'{mhs_at_mss[i].id} (P={mhs_at_mss[i].base_priority})'
-        )
+        selected_mh = st.selectbox('MH', range(len(mhs_at_mss)),
+            format_func=lambda i: f'{mhs_at_mss[i].id} (P={mhs_at_mss[i].base_priority})')
         
         if st.button('📤 Send Request', use_container_width=True):
             req = mhs_at_mss[selected_mh].request_cs()
             if req:
                 st.session_state.reqs_made.append(req)
-                st.success(f'{mhs_at_mss[selected_mh].id} requested CS')
-            else:
-                st.warning('Already has a pending request')
+                st.success(f'{mhs_at_mss[selected_mh].id} requested')
 
     st.markdown('---')
-    st.subheader('🔄 Token Circulation')
+    st.subheader('🔄 Token')
 
     c1, c2 = st.columns(2)
     with c1:
         if st.button('▶ Step', use_container_width=True):
-            granted, ev = tm.step()
+            granted, _ = tm.step()
             st.session_state.step += 1
-            if granted:
-                st.success(f'Granted → {granted.mh_id}')
     with c2:
         if st.button('⏩ ×5', use_container_width=True):
             for _ in range(5):
@@ -1140,67 +1188,51 @@ with st.sidebar:
                 st.session_state.step += 1
 
     st.markdown('---')
-    st.subheader('🏁 Complete CS')
-    granted_list = [r for r in st.session_state.reqs_made if r.status == 'GRANTED']
-    if granted_list:
-        g_opts = [f'{r.mh_id}' for r in granted_list]
-        g_sel = st.selectbox('Select granted request', range(len(granted_list)), format_func=lambda i: g_opts[i])
-        if st.button('✅ Mark Completed', use_container_width=True):
-            chosen = granted_list[g_sel]
-            tm.complete(chosen)
-            for mh in mhs:
-                if mh.id == chosen.mh_id:
-                    mh.exit_cs()
-            st.success(f'{chosen.mh_id} completed CS')
-    else:
-        st.info('No granted requests')
-
-    st.markdown('---')
     holder = ring.token_holder()
     st.metric('Steps', st.session_state.step)
     st.metric('Token At', f'MSS_{holder.id}' if holder else '—')
-    st.metric('Circulations', tm.circulations)
 
 
-# ═══════════════════════════════════════════════════════════════
-#                           TABS
-# ═══════════════════════════════════════════════════════════════
-
+# Tabs
 tab1, tab2, tab3, tab4 = st.tabs([
-    '🎬 1. Animation Demo',
-    '📡 2. Request Propagation',
-    '📋 3. Request Logs',
-    '📊 4. Queue States',
+    '🎬 1. Animation',
+    '📡 2. Propagation',
+    '📋 3. Logs',
+    '📊 4. Queues',
 ])
 
-# ────────── TAB 1: ANIMATION DEMO ──────────
+# ────────── TAB 1: ANIMATION ──────────
 with tab1:
-    st.markdown('### Token Ring Animation — Complete Lifecycle Demo')
+    st.markdown('### Token Ring Animation Demo')
     
-    # Animation configuration
-    st.markdown('#### 🎛️ Animation Configuration')
+    st.info('''
+    **Demo Scenario:** This animation demonstrates:
+    1. **MH sends REQUEST** to its MSS **before** token arrives
+    2. Token **briefly stops** at each MSS to check for pending requests
+    3. If no pending requests → token released quickly
+    4. If pending request found → MSS **HOLDS** token longer
+    5. **Handoff scenario:** MH moves to new MSS, old request killed, must re-register
+    ''')
     
+    # Configuration
+    st.markdown('#### Configuration')
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        num_mss_anim = st.selectbox('Number of MSSs', [4, 5, 6], index=2)
+        num_mss_anim = st.selectbox('Number of MSSs', [4, 5, 6], index=2, key='num_mss')
     
     with col2:
-        # Generate MH options based on num_mss
-        mh_options = []
-        for mss_id in range(num_mss_anim):
-            for mh_idx in range(3):
-                mh_options.append(f"MH_{mss_id}_{chr(65 + mh_idx)}")
-        
-        requesting_mh = st.selectbox('Requesting MH', mh_options, index=3)  # Default MH_1_A
+        mh_options = [f"MH_{mss_id}_{chr(65 + mh_idx)}" 
+                      for mss_id in range(num_mss_anim) for mh_idx in range(3)]
+        requesting_mh = st.selectbox('Requesting MH', mh_options, index=6, key='req_mh')
     
     with col3:
-        # Filter out the requesting MH for handoff selection
         handoff_options = [mh for mh in mh_options if mh != requesting_mh]
-        handoff_mh = st.selectbox('Handoff MH', handoff_options, index=4)  # Default different MH
+        handoff_mh = st.selectbox('Handoff MH', handoff_options, index=4, key='handoff_mh')
     
+    # Generate animation button
     if st.button('🎬 Generate Animation', use_container_width=True, type='primary'):
-        with st.spinner('Generating animation frames...'):
+        with st.spinner('Generating frames...'):
             anim_fig, log_entries = create_comprehensive_animation(
                 num_mss=num_mss_anim,
                 requesting_mh=requesting_mh,
@@ -1208,44 +1240,52 @@ with tab1:
             )
             st.session_state.anim_fig = anim_fig
             st.session_state.log_entries = log_entries
+            st.session_state.current_frame = 0
     
     st.markdown('---')
     
     # Display animation
     if 'anim_fig' in st.session_state:
-        st.markdown('#### 📺 Animation Viewer')
-        
-        st.info('''
-        **🎮 Controls:** Use the slider below to step through the animation frame by frame.
-        ''')
-        
         anim_fig = st.session_state.anim_fig
         
-        # Frame slider control
         if anim_fig.frames:
-            frame_idx = st.slider(
-                'Animation Frame',
-                0,
-                len(anim_fig.frames) - 1,
-                0,
-                key='frame_slider'
-            )
+            total_frames = len(anim_fig.frames)
             
-            # Auto-play toggle
-            col1, col2, col3 = st.columns([1, 1, 2])
+            # Frame controls
+            st.markdown('#### Animation Controls')
+            col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+            
             with col1:
-                auto_play = st.checkbox('Auto-play')
+                if st.button('⏮️ Start'):
+                    st.session_state.current_frame = 0
+            
             with col2:
-                speed = st.selectbox('Speed', ['Slow', 'Medium', 'Fast'], index=1)
+                if st.button('◀️ Prev'):
+                    if st.session_state.current_frame > 0:
+                        st.session_state.current_frame -= 1
             
-            if auto_play:
-                speed_map = {'Slow': 0.3, 'Medium': 0.1, 'Fast': 0.05}
-                time.sleep(speed_map[speed])
-                if frame_idx < len(anim_fig.frames) - 1:
-                    st.session_state.frame_slider = frame_idx + 1
-                    st.rerun()
+            with col3:
+                if st.button('▶️ Next'):
+                    if st.session_state.current_frame < total_frames - 1:
+                        st.session_state.current_frame += 1
             
-            # Display the current frame
+            with col4:
+                if st.button('⏭️ End'):
+                    st.session_state.current_frame = total_frames - 1
+            
+            # Frame slider
+            frame_idx = st.slider(
+                'Frame',
+                0,
+                total_frames - 1,
+                st.session_state.get('current_frame', 0),
+                key='frame_slider_display'
+            )
+            st.session_state.current_frame = frame_idx
+            
+            st.caption(f'Frame {frame_idx + 1} of {total_frames}')
+            
+            # Display current frame
             current_frame = anim_fig.frames[frame_idx]
             
             display_fig = go.Figure(
@@ -1255,222 +1295,106 @@ with tab1:
             
             st.plotly_chart(display_fig, use_container_width=True)
     else:
-        st.warning('👆 Configure and click "Generate Animation" to see the demo')
+        st.warning('👆 Click "Generate Animation" to see the demo')
     
     # Legend
     st.markdown('---')
-    st.markdown('#### 🎨 Color Legend')
+    st.markdown('#### Color Legend')
     
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.markdown('''
-        **Token States:**
-        - ⚪ White = Free token
-        - 🟢 Green = Token held
+        **Token:**
+        - ⚪ White = Free
+        - 🟢 Green = Held
         ''')
     
     with col2:
         st.markdown('''
-        **MSS States:**
+        **MSS:**
         - 🔵 Cyan = Normal
-        - 🟡 Yellow = Has pending request
+        - 🟡 Yellow = Pending request
         - 🟢 Green = Holding token
-        - 🟣 Purple = Granting permission
+        - 🟣 Purple = Granting
+        - 🔴 Red = Request killed
         ''')
     
     with col3:
         st.markdown('''
-        **MH States:**
+        **MH:**
         - 🟢 Green = Normal
         - 🟠 Orange = Requesting
         - 🟣 Purple = In CS
-        - 🟠 Orange (dashed) = Handoff
-        ''')
-    
-    with col4:
-        st.markdown('''
-        **Messages:**
-        - 🟧 Orange square = REQUEST
-        - 🟦 Blue square = PERMISSION/RELEASE
-        - ➖ Dashed line = Handoff path
+        - 🟠 Dashed = Handoff
         ''')
     
     # Phase descriptions
-    st.markdown('---')
-    st.markdown('#### 📜 Animation Phases')
-    
     if 'log_entries' in st.session_state:
-        for i, entry in enumerate(st.session_state.log_entries):
-            st.markdown(f'**{i+1}.** {entry}')
+        st.markdown('---')
+        st.markdown('#### Animation Phases')
+        for i, entry in enumerate(st.session_state.log_entries, 1):
+            st.markdown(f'{i}. {entry}')
 
 
-# ────────── TAB 2: REQUEST PROPAGATION ──────────
+# ────────── TAB 2: PROPAGATION ──────────
 with tab2:
-    st.markdown('### Request Broadcasting & Priority-Based Granting')
+    st.markdown('### Request Broadcasting')
     
-    st.info('''
-    **Replication mechanism:**
-    1. MH sends REQUEST to its local MSS
-    2. MSS broadcasts the request to ALL other MSSs
-    3. Every MSS adds the request to its replicated global queue
-    4. When token arrives, MSS grants to highest-priority LOCAL MH
-    ''')
-    
-    # Static ring visualization
     static_fig = create_static_ring_with_mhs(ring.nodes)
     st.plotly_chart(static_fig, use_container_width=True)
     
-    st.markdown('#### 📨 Broadcast Trace')
     if st.session_state.reqs_made:
         for req in st.session_state.reqs_made:
-            other_mss = [f'MSS_{m.id}' for m in ring.nodes if m.id != req.source_mss_id]
-            with st.expander(f'📨 {req.request_id} | {req.mh_id} → MSS_{req.source_mss_id} | P={req.priority} | {req.status}'):
-                st.write(f'**Origin:** {req.mh_id} at MSS_{req.source_mss_id}')
-                st.write(f'**Priority:** {req.priority} | **Lamport Time:** {req.timestamp}')
-                st.write(f'**Broadcast to:** {", ".join(other_mss)}')
-                st.write(f'**Status:** `{req.status}`')
+            with st.expander(f'{req.request_id} | {req.status}'):
+                st.write(f'**MH:** {req.mh_id}')
+                st.write(f'**MSS:** MSS_{req.source_mss_id}')
+                st.write(f'**Priority:** {req.priority}')
     else:
-        st.warning('No requests yet. Use the sidebar to send requests.')
+        st.info('No requests yet')
     
-    st.markdown('---')
-    st.markdown('#### 📊 Global Priority Queue (Token Holder)')
-    holder = ring.token_holder()
-    if holder and holder.global_queue:
-        gq = []
-        for rank, r in enumerate(holder.global_queue, 1):
-            is_local = '✅' if r.source_mss_id == holder.id else ''
-            gq.append({
-                'Rank': rank,
-                'MH': r.mh_id,
-                'Source MSS': f'MSS_{r.source_mss_id}',
-                'Priority': r.priority,
-                'Lamport T': r.timestamp,
-                'Local?': is_local,
-                'Status': r.status,
-            })
-        st.dataframe(pd.DataFrame(gq), use_container_width=True, hide_index=True)
-    else:
-        st.info('Queue is empty')
-
-    st.markdown('---')
-    st.markdown('#### 📝 Event Log')
+    st.markdown('#### Event Log')
     if tm.event_log:
-        for ev in tm.event_log[-15:]:
+        for ev in tm.event_log[-10:]:
             st.text(ev)
-    else:
-        st.info('No events yet')
 
 
-# ────────── TAB 3: REQUEST LOGS ──────────
+# ────────── TAB 3: LOGS ──────────
 with tab3:
-    st.markdown('### Replicated Request Logs at Each MSS')
-    
-    st.info('Every MSS keeps a complete replicated copy of all requests.')
+    st.markdown('### Replicated Request Logs')
     
     for mss in ring.nodes:
-        token_badge = ' 🔑' if mss.has_token else ''
-        mh_list = ', '.join([mh.id for mh in mss.mobile_hosts])
-        
-        with st.expander(f'📋 MSS_{mss.id}{token_badge} — MHs: [{mh_list}] — {len(mss.replicated_log)} entries', expanded=True):
+        tok = ' 🔑' if mss.has_token else ''
+        with st.expander(f'MSS_{mss.id}{tok} — {len(mss.replicated_log)} entries', expanded=True):
             if mss.replicated_log:
-                log_data = []
-                for idx_r, r in enumerate(mss.replicated_log, 1):
-                    is_local = 'Local' if r.source_mss_id == mss.id else 'Replicated'
-                    log_data.append({
-                        '#': idx_r,
-                        'Request ID': r.request_id,
-                        'MH': r.mh_id,
-                        'Origin MSS': f'MSS_{r.source_mss_id}',
-                        'Priority': r.priority,
-                        'Lamport T': r.timestamp,
-                        'Type': is_local,
-                        'Status': r.status,
-                    })
-                st.dataframe(pd.DataFrame(log_data), use_container_width=True, hide_index=True)
+                df = pd.DataFrame([r.to_dict() for r in mss.replicated_log])
+                st.dataframe(df, use_container_width=True, hide_index=True)
             else:
-                st.caption('No entries yet')
-    
-    st.markdown('---')
-    st.markdown('#### ✅ Replication Consistency Check')
-    sets = []
-    for mss in ring.nodes:
-        ids = sorted(set(r.request_id for r in mss.replicated_log))
-        sets.append(ids)
-    
-    if len(sets) > 1 and all(s == sets[0] for s in sets):
-        st.success('✅ All MSSs have identical replicated request sets')
-    elif not any(sets):
-        st.info('No requests to compare yet')
-    else:
-        st.warning('⚠️ Logs not yet synchronized')
+                st.caption('Empty')
 
 
-# ────────── TAB 4: QUEUE STATES ──────────
+# ────────── TAB 4: QUEUES ──────────
 with tab4:
-    st.markdown('### Queue State After Service')
-    
-    st.info('After a request is granted and completed, it is removed from the global queue.')
+    st.markdown('### Queue States')
     
     cols = st.columns(ring.n)
-    for idx_col, mss in enumerate(ring.nodes):
-        with cols[idx_col]:
+    for i, mss in enumerate(ring.nodes):
+        with cols[i]:
             tok = ' 🔑' if mss.has_token else ''
-            st.markdown(f'#### MSS_{mss.id}{tok}')
+            st.markdown(f'**MSS_{mss.id}{tok}**')
             
-            st.caption(f'**MHs:** {", ".join([mh.id for mh in mss.mobile_hosts])}')
-            
-            st.caption('**Local Queue:**')
             if mss.local_queue:
-                ldf = pd.DataFrame([{
-                    'MH': r.mh_id,
-                    'P': r.priority,
-                    'Status': r.status,
-                } for r in mss.local_queue])
-                st.dataframe(ldf, hide_index=True, use_container_width=True)
-            else:
-                st.success('Empty ✓')
-            
-            st.caption('**Global Queue:**')
-            if mss.global_queue:
-                gdf = pd.DataFrame([{
-                    'MH': r.mh_id,
-                    'P': r.priority,
-                    'Status': r.status,
-                } for i, r in enumerate(mss.global_queue[:5])])  # Show top 5
-                st.dataframe(gdf, hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame([{
+                    'MH': r.mh_id, 'P': r.priority, 'Status': r.status
+                } for r in mss.local_queue]), hide_index=True)
             else:
                 st.success('Empty ✓')
     
     st.markdown('---')
-    st.markdown('#### ✅ Completed Requests')
-    completed = []
-    seen_ids = set()
-    for mss in ring.nodes:
-        for r in mss.replicated_log:
-            if r.status == 'COMPLETED' and r.request_id not in seen_ids:
-                completed.append(r.to_dict())
-                seen_ids.add(r.request_id)
-    
-    if completed:
-        st.dataframe(pd.DataFrame(completed), use_container_width=True, hide_index=True)
-    else:
-        st.warning('No completed requests yet')
-    
-    st.markdown('---')
-    st.markdown('#### 📊 Per-MSS Statistics')
-    st.dataframe(
-        pd.DataFrame([mss.stats() for mss in ring.nodes]),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.dataframe(pd.DataFrame([mss.stats() for mss in ring.nodes]), 
+                 use_container_width=True, hide_index=True)
 
 
 # Footer
 st.markdown('---')
-st.markdown('''
-<div style='text-align:center;color:gray;font-size:.85rem;'>
-<b>Token-Ring Mutual Exclusion with Replication</b><br>
-MSS-MH Architecture · Lamport Clocks · Priority Queues · Request Broadcasting · Handoff Handling
-</div>
-''', unsafe_allow_html=True)
+st.caption('Token-Ring Mutual Exclusion with Replication | MSS-MH Architecture')
