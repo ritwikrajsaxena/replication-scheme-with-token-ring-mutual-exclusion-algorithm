@@ -1,1 +1,1 @@
-# replication-scheme-with-token-ring-mutual-exclusion-algorithm
+# Replication-scheme-with-token-ring-mutual-exclusion-algorithm
