@@ -226,19 +226,14 @@ class TokenManager:
 #                   COMPREHENSIVE ANIMATION SYSTEM
 # ═══════════════════════════════════════════════════════════════
 
+SPEED_MAP = {"🐢 Slow": 0.18, "🚶 Medium": 0.08, "🏃 Fast": 0.03, "⚡ Very Fast": 0.01}
+
+
 def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_A",
                                     handoff_mh: str = "MH_3_B"):
     """
     Create a comprehensive animation showing the full token ring lifecycle.
-
-    Key sequence:
-    1. MH sends request to its MSS FIRST (before token arrives)
-    2. Token starts circulating from MSS_0
-    3. Token briefly stops at each MSS (checks queue)
-    4. If no pending request, token is released quickly
-    5. If pending request exists, token is HELD longer
-    6. MSS grants permission, MH enters CS
-    7. After CS, another MH requests but does handoff
+    Returns a list of trace-lists (one per frame), a layout, phase markers, and log entries.
     """
 
     radius = 2.2
@@ -290,8 +285,8 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
         'connection': '#666666',
     }
 
-    frames_data = []       # list of dicts, one per frame
-    phase_markers = []     # (frame_idx, phase_text)
+    frames_data = []
+    phase_markers = []
     log_entries = []
 
     steps_between_mss = 12
@@ -350,7 +345,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
 
         # MSS nodes
         mss_color_list = [mss_colors.get(i, colors['mss_normal']) for i in range(num_mss)]
-        mss_sizes = [55 if mss_colors.get(i) else 48 for i in range(num_mss)]
+        mss_sizes = [55 if i in mss_colors else 48 for i in range(num_mss)]
         data.append(go.Scatter(
             x=mss_x, y=mss_y, mode='markers+text',
             marker=dict(size=mss_sizes, color=mss_color_list,
@@ -372,7 +367,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
                 else:
                     mx, my = mh_positions[mss_id][mh_idx]
                 mh_color = mh_colors.get(mh_name, colors['mh_normal'])
-                mh_size = 28 if mh_colors.get(mh_name) else 22
+                mh_size = 28 if mh_name in mh_colors else 22
                 data.append(go.Scatter(
                     x=[mx], y=[my], mode='markers+text',
                     marker=dict(size=mh_size, color=mh_color,
@@ -453,9 +448,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
     def add_frame(**kw):
         frames_data.append(build_traces(**kw))
 
-    frame_idx = 0
-
-    # ── PHASE 1 ──
+    # ── PHASE 1: MH sends REQUEST ──
     phase_markers.append((len(frames_data),
         f"Phase 1 — {requesting_mh} sends REQUEST to MSS_{req_mss_id}"))
     log_entries.append(f"Phase 1: {requesting_mh} sends REQUEST to MSS_{req_mss_id}")
@@ -473,7 +466,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text=f"📤 {requesting_mh} sending REQUEST to MSS_{req_mss_id}"
         )
 
-    # ── PHASE 2 ──
+    # ── PHASE 2: MSS queues request ──
     phase_markers.append((len(frames_data),
         f"Phase 2 — MSS_{req_mss_id} queues request"))
     log_entries.append(f"Phase 2: MSS_{req_mss_id} receives request, queues it")
@@ -486,30 +479,30 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text=f"📋 MSS_{req_mss_id} queued request from {requesting_mh}"
         )
 
-    # ── PHASE 3 ──
+    # ── PHASE 3: Token circulates ──
     phase_markers.append((len(frames_data),
         "Phase 3 — Token circulates, checking each MSS"))
     log_entries.append("Phase 3: Token circulates, briefly checking each MSS")
 
-    for current_mss in range(req_mss_id):
+    for current_mss_idx in range(req_mss_id):
         for step in range(steps_between_mss):
             t = step / steps_between_mss
             add_frame(
-                token_pos=current_mss + t, token_color=colors['token_free'],
+                token_pos=current_mss_idx + t, token_color=colors['token_free'],
                 mss_colors={req_mss_id: colors['mss_pending']},
                 mh_colors={requesting_mh: colors['mh_requesting']},
-                log_text=f"⚪ Token moving to MSS_{current_mss}…"
+                log_text=f"⚪ Token moving to MSS_{current_mss_idx}…"
             )
         for _ in range(brief_stop):
             add_frame(
-                token_pos=current_mss, token_color=colors['token_free'],
-                mss_colors={current_mss: colors['mss_checking'],
+                token_pos=current_mss_idx, token_color=colors['token_free'],
+                mss_colors={current_mss_idx: colors['mss_checking'],
                             req_mss_id: colors['mss_pending']},
                 mh_colors={requesting_mh: colors['mh_requesting']},
-                log_text=f"🔍 MSS_{current_mss}: No pending requests → releasing token"
+                log_text=f"🔍 MSS_{current_mss_idx}: No pending requests → releasing token"
             )
 
-    # ── PHASE 4 ──
+    # ── PHASE 4: Token arrives at requesting MSS ──
     phase_markers.append((len(frames_data),
         f"Phase 4 — Token arrives at MSS_{req_mss_id}"))
     log_entries.append(f"Phase 4: Token arrives at MSS_{req_mss_id}")
@@ -524,7 +517,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text=f"⚪ Token approaching MSS_{req_mss_id}…"
         )
 
-    # ── PHASE 5 ──
+    # ── PHASE 5: MSS HOLDS token ──
     phase_markers.append((len(frames_data),
         f"Phase 5 — MSS_{req_mss_id} HOLDS token"))
     log_entries.append(f"Phase 5: MSS_{req_mss_id} HOLDS token (pending request found)")
@@ -537,7 +530,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text=f"🟢 MSS_{req_mss_id} HOLDING token! Pending request found."
         )
 
-    # ── PHASE 6 ──
+    # ── PHASE 6: Grant PERMISSION ──
     phase_markers.append((len(frames_data),
         f"Phase 6 — MSS_{req_mss_id} grants PERMISSION"))
     log_entries.append(f"Phase 6: MSS_{req_mss_id} grants PERMISSION to {requesting_mh}")
@@ -553,7 +546,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text=f"📨 MSS_{req_mss_id} sending PERMISSION to {requesting_mh}"
         )
 
-    # ── PHASE 7 ──
+    # ── PHASE 7: MH enters CS ──
     phase_markers.append((len(frames_data),
         f"Phase 7 — {requesting_mh} enters CRITICAL SECTION"))
     log_entries.append(f"Phase 7: {requesting_mh} enters CRITICAL SECTION")
@@ -566,7 +559,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text=f"🟣 {requesting_mh} in CRITICAL SECTION…"
         )
 
-    # ── PHASE 8 ──
+    # ── PHASE 8: MH sends RELEASE ──
     phase_markers.append((len(frames_data),
         f"Phase 8 — {requesting_mh} sends RELEASE"))
     log_entries.append(f"Phase 8: {requesting_mh} sends RELEASE to MSS_{req_mss_id}")
@@ -582,7 +575,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text=f"📤 {requesting_mh} sending RELEASE to MSS_{req_mss_id}"
         )
 
-    # ── PHASE 9 ──
+    # ── PHASE 9: Token released, handoff MH requests ──
     phase_markers.append((len(frames_data),
         f"Phase 9 — Token released; {handoff_mh} sends new request"))
     log_entries.append(f"Phase 9: Token released; {handoff_mh} sends new request")
@@ -610,7 +603,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text=f"📋 MSS_{handoff_mss_id} queued request from {handoff_mh}"
         )
 
-    # ── PHASE 10 ──
+    # ── PHASE 10: HANDOFF ──
     phase_markers.append((len(frames_data),
         f"Phase 10 — HANDOFF! {handoff_mh} moves to MSS_{handoff_target_mss}"))
     log_entries.append(f"Phase 10: HANDOFF! {handoff_mh} moves to MSS_{handoff_target_mss}")
@@ -632,7 +625,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             mh_override_pos={handoff_mh: (cx, cy)}
         )
 
-    # ── PHASE 11 ──
+    # ── PHASE 11: Request KILLED ──
     phase_markers.append((len(frames_data),
         f"Phase 11 — Request KILLED at MSS_{handoff_mss_id}"))
     log_entries.append(f"Phase 11: Request KILLED at MSS_{handoff_mss_id} (MH left)")
@@ -648,7 +641,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         )
 
-    # ── PHASE 12 ──
+    # ── PHASE 12: MH re-registers ──
     phase_markers.append((len(frames_data),
         f"Phase 12 — {handoff_mh} re-registers at MSS_{handoff_target_mss}"))
     log_entries.append(f"Phase 12: {handoff_mh} re-registers at MSS_{handoff_target_mss}")
@@ -678,7 +671,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         )
 
-    # ── PHASE 13 ──
+    # ── PHASE 13: Token checks intermediate MSSs ──
     phase_markers.append((len(frames_data),
         "Phase 13 — Token checks intermediate MSSs"))
     log_entries.append("Phase 13: Token continues, checking intermediate MSSs")
@@ -706,7 +699,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             )
         current_pos = (current_pos + 1) % num_mss
 
-    # ── PHASE 14 ──
+    # ── PHASE 14: Token grants to handoff MH at new MSS ──
     phase_markers.append((len(frames_data),
         f"Phase 14 — Token grants to {handoff_mh} at new MSS"))
     log_entries.append(f"Phase 14: Token at MSS_{handoff_target_mss}, grants to {handoff_mh}")
@@ -752,7 +745,7 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             mh_override_pos={handoff_mh: (new_mh_x, new_mh_y)}
         )
 
-    # ── PHASE 15 ──
+    # ── PHASE 15: Normal operation ──
     phase_markers.append((len(frames_data),
         "Phase 15 — Normal operation resumes"))
     log_entries.append("Phase 15: Normal operation resumes")
@@ -765,16 +758,16 @@ def create_comprehensive_animation(num_mss: int = 6, requesting_mh: str = "MH_2_
             log_text="⚪ Normal operation: free token circulating…"
         )
 
-    # Build the layout (shared across all frames)
+    # Layout
     layout = go.Layout(
         title=dict(
             text='<b>Token Ring Mutual Exclusion — MSS / MH Architecture</b>',
             font=dict(color='white', size=18), x=0.5,
         ),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-3.5, 3.5]),
+                    range=[-3.5, 3.5]),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-3.8, 3.5], scaleanchor='x'),
+                    range=[-3.8, 3.5], scaleanchor='x'),
         plot_bgcolor='#1a1a2e', paper_bgcolor='#1a1a2e',
         height=700,
         margin=dict(l=20, r=20, t=60, b=60),
@@ -843,9 +836,9 @@ def create_static_ring_with_mhs(mss_list):
     fig.update_layout(
         title=dict(text='<b>MSS-MH Token Ring</b>', font=dict(size=16)),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-3.5, 3.5]),
+                    range=[-3.5, 3.5]),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[-3.5, 3.5], scaleanchor='x'),
+                    range=[-3.5, 3.5], scaleanchor='x'),
         height=550, plot_bgcolor='white', paper_bgcolor='white',
         margin=dict(l=20, r=20, t=50, b=20),
     )
@@ -858,15 +851,15 @@ def create_static_ring_with_mhs(mss_list):
 
 def build_scenario_with_3mhs(num_mss=4):
     ring = RingTopology(num_mss)
-    mhs = []
+    mhs_list = []
     for mss_id in range(num_mss):
         for mh_idx in range(3):
             mh_name = f"MH_{mss_id}_{chr(65 + mh_idx)}"
             priority = 5 + mh_idx + mss_id
             mh = MobileHost(mh_name, ring.nodes[mss_id], base_priority=priority)
             ring.nodes[mss_id].add_mh(mh)
-            mhs.append(mh)
-    return ring, mhs
+            mhs_list.append(mh)
+    return ring, mhs_list
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -888,27 +881,30 @@ st.markdown("""
 Priority-Based Granting &nbsp;|&nbsp; Handoff Handling</p>
 """, unsafe_allow_html=True)
 
-# Session state init
+# ── Session state defaults ──
 if 'ring' not in st.session_state:
     r, m = build_scenario_with_3mhs(4)
     st.session_state.ring = r
     st.session_state.mhs = m
     st.session_state.tm = TokenManager(r)
     st.session_state.step = 0
-    st.session_state.reqs_made: List[Request] = []
+    st.session_state.reqs_made = []
 
-for key, val in [('anim_playing', False), ('anim_frame', 0),
-                 ('anim_frames', None), ('anim_layout', None),
-                 ('anim_phases', []), ('anim_log_entries', []),
-                 ('anim_speed', 0.08)]:
-    if key not in st.session_state:
-        st.session_state[key] = val
+_defaults = {
+    'anim_playing': False, 'anim_frame': 0,
+    'anim_frames': None, 'anim_layout': None,
+    'anim_phases': [], 'anim_log_entries': [],
+    'anim_speed': 0.08,
+}
+for k, v in _defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 ring: RingTopology = st.session_state.ring
 mhs: List[MobileHost] = st.session_state.mhs
 tm: TokenManager = st.session_state.tm
 
-# Sidebar
+# ── Sidebar ──
 with st.sidebar:
     st.header('⚙️ Controls')
 
@@ -922,14 +918,14 @@ with st.sidebar:
 
     mh_by_mss = {}
     for mh in mhs:
-        mss_id = mh.current_mss.id
-        mh_by_mss.setdefault(mss_id, []).append(mh)
+        mh_by_mss.setdefault(mh.current_mss.id, []).append(mh)
 
     selected_mss = st.selectbox('MSS', range(ring.n), format_func=lambda i: f'MSS_{i}')
     mhs_at_mss = mh_by_mss.get(selected_mss, [])
 
     if mhs_at_mss:
-        selected_mh = st.selectbox('MH', range(len(mhs_at_mss)),
+        selected_mh = st.selectbox(
+            'MH', range(len(mhs_at_mss)),
             format_func=lambda i: f'{mhs_at_mss[i].id} (P={mhs_at_mss[i].base_priority})')
 
         if st.button('📤 Send Request', use_container_width=True):
@@ -944,11 +940,13 @@ with st.sidebar:
     c1, c2 = st.columns(2)
     with c1:
         if st.button('▶ Step', use_container_width=True):
-            tm.step(); st.session_state.step += 1
+            tm.step()
+            st.session_state.step += 1
     with c2:
         if st.button('⏩ ×5', use_container_width=True):
             for _ in range(5):
-                tm.step(); st.session_state.step += 1
+                tm.step()
+                st.session_state.step += 1
 
     st.markdown('---')
     holder = ring.token_holder()
@@ -981,12 +979,16 @@ with tab1:
     with col1:
         num_mss_anim = st.selectbox('Number of MSSs', [4, 5, 6], index=2, key='num_mss')
     with col2:
-        mh_options = [f"MH_{mid}_{chr(65+j)}"
+        mh_options = [f"MH_{mid}_{chr(65 + j)}"
                       for mid in range(num_mss_anim) for j in range(3)]
-        requesting_mh = st.selectbox('Requesting MH', mh_options, index=6, key='req_mh')
+        req_default = min(6, len(mh_options) - 1)
+        requesting_mh = st.selectbox('Requesting MH', mh_options,
+                                     index=req_default, key='req_mh')
     with col3:
         handoff_options = [m for m in mh_options if m != requesting_mh]
-        handoff_mh = st.selectbox('Handoff MH', handoff_options, index=4, key='handoff_mh')
+        ho_default = min(4, len(handoff_options) - 1)
+        handoff_mh = st.selectbox('Handoff MH', handoff_options,
+                                  index=ho_default, key='handoff_mh')
 
     if st.button('🎬 Generate Animation', use_container_width=True, type='primary'):
         with st.spinner('Generating frames…'):
@@ -1005,13 +1007,13 @@ with tab1:
 
     st.markdown('---')
 
-    # ── Playback controls ──
+    # ── Playback ──
     if st.session_state.anim_frames is not None:
         total = len(st.session_state.anim_frames)
 
         st.markdown('#### Playback Controls')
 
-        ctrl1, ctrl2, ctrl3, ctrl4, ctrl5, ctrl6 = st.columns([1, 1, 1, 1, 1, 2])
+        ctrl1, ctrl2, ctrl3, ctrl4, ctrl5 = st.columns(5)
         with ctrl1:
             if st.button('⏮️ Start', use_container_width=True):
                 st.session_state.anim_frame = 0
@@ -1021,7 +1023,6 @@ with tab1:
                 st.session_state.anim_playing = False
                 st.session_state.anim_frame = max(0, st.session_state.anim_frame - 1)
         with ctrl3:
-            # ▶ / ⏸ toggle
             if st.session_state.anim_playing:
                 if st.button('⏸️ Pause', use_container_width=True, type='primary'):
                     st.session_state.anim_playing = False
@@ -1040,38 +1041,39 @@ with tab1:
                 st.session_state.anim_frame = total - 1
                 st.session_state.anim_playing = False
 
-        with ctrl6:
-            speed = st.select_slider(
-                'Speed',
-                options=[('Slow', 0.18), ('Medium', 0.08), ('Fast', 0.03),
-                         ('Very Fast', 0.01)],
-                value=('Medium', 0.08),
-                format_func=lambda x: x[0],
-                key='speed_slider',
-            )
-            st.session_state.anim_speed = speed[1]
+        # Speed selector — plain strings to avoid tuple-matching bug
+        speed_label = st.select_slider(
+            'Speed',
+            options=list(SPEED_MAP.keys()),
+            value='🚶 Medium',
+            key='speed_slider',
+        )
+        st.session_state.anim_speed = SPEED_MAP[speed_label]
 
-        # Frame slider (disabled while playing so it doesn't fight)
+        # Frame slider (only interactive when paused)
         if not st.session_state.anim_playing:
             new_frame = st.slider('Frame', 0, total - 1,
                                   st.session_state.anim_frame,
                                   key='frame_slider')
             st.session_state.anim_frame = new_frame
+        else:
+            st.slider('Frame', 0, total - 1,
+                      st.session_state.anim_frame,
+                      key='frame_slider_readonly', disabled=True)
 
         # Current phase label
         current_phase = ""
-        for idx, txt in st.session_state.anim_phases:
-            if st.session_state.anim_frame >= idx:
-                current_phase = txt
+        for pidx, ptxt in st.session_state.anim_phases:
+            if st.session_state.anim_frame >= pidx:
+                current_phase = ptxt
         if current_phase:
             st.markdown(f'**🔶 {current_phase}**')
 
-        st.caption(f'Frame {st.session_state.anim_frame + 1} / {total}'
-                   f'{"  ▶ PLAYING" if st.session_state.anim_playing else ""}')
+        status = "  ▶ PLAYING" if st.session_state.anim_playing else ""
+        st.caption(f'Frame {st.session_state.anim_frame + 1} / {total}{status}')
 
         # ── Render current frame ──
         chart_slot = st.empty()
-
         frame_traces = st.session_state.anim_frames[st.session_state.anim_frame]
         fig = go.Figure(data=frame_traces, layout=st.session_state.anim_layout)
         chart_slot.plotly_chart(fig, use_container_width=True, key='anim_chart')
@@ -1083,7 +1085,6 @@ with tab1:
                 st.session_state.anim_frame += 1
                 st.rerun()
             else:
-                # Reached the end
                 st.session_state.anim_playing = False
                 st.toast('✅ Animation complete!')
                 st.rerun()
