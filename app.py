@@ -1,5 +1,5 @@
 """
-Token-Ring Mutual Exclusion with Replication — GLOBAL PRIORITY FIXED
+Token-Ring Mutual Exclusion with Replication
 ====================================================================
 Tab 1: Original Token Ring Animation (full scenario with handoff)
 Tab 2: Request Broadcasting Animation
